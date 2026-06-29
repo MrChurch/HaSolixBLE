@@ -18,6 +18,7 @@ from . import (
     MOCK_C300_DETAILS,
     MOCK_C300_TEST_DATA,
     MOCK_C300DC_DETAILS,
+    MOCK_C300DC_TEST_DATA,
     MOCK_C800_DETAILS,
     MOCK_C800_TEST_DATA,
     MOCK_C1000_DETAILS,
@@ -25,6 +26,10 @@ from . import (
     MOCK_C1000G2_DETAILS,
     MOCK_F2000_DETAILS,
     MOCK_F3800_DETAILS,
+    MOCK_PRIME_160_DETAILS,
+    MOCK_PRIME_160_TEST_DATA,
+    MOCK_PRIME_250_DETAILS,
+    MOCK_PRIME_250_TEST_DATA,
     MOCK_UNKNOWN_DETAILS,
     MOCK_UNKNOWN_TEST_DATA,
     MockDeviceDetails,
@@ -38,7 +43,11 @@ from . import (
             MOCK_C300_DETAILS, MOCK_C300_DETAILS, "C300", MOCK_C300_TEST_DATA, id="c300"
         ),
         pytest.param(
-            MOCK_C300DC_DETAILS, MOCK_C300DC_DETAILS, "C300DC", {}, id="c300dc"
+            MOCK_C300DC_DETAILS,
+            MOCK_C300DC_DETAILS,
+            "C300DC",
+            MOCK_C300DC_TEST_DATA,
+            id="c300dc",
         ),
         pytest.param(
             MOCK_C800_DETAILS, MOCK_C800_DETAILS, "C800", MOCK_C800_TEST_DATA, id="c800"
@@ -70,6 +79,20 @@ from . import (
             "F3800",
             {},
             id="f3800",
+        ),
+        pytest.param(
+            MOCK_PRIME_160_DETAILS,
+            MOCK_PRIME_160_DETAILS,
+            "PrimeCharger160w",
+            MOCK_PRIME_160_TEST_DATA,
+            id="prime_160w",
+        ),
+        pytest.param(
+            MOCK_PRIME_250_DETAILS,
+            MOCK_PRIME_250_DETAILS,
+            "PrimeCharger250w",
+            MOCK_PRIME_250_TEST_DATA,
+            id="prime_250w",
         ),
         pytest.param(
             MOCK_UNKNOWN_DETAILS,

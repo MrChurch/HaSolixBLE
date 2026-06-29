@@ -60,3 +60,8 @@ This lists the supported devices, more information on what features are supporte
 ## Adding support for new devices
 
 Support for new devices can be added by setting up this integration with an unsupported device and enabling debug logging, this causes the raw telemetry data and differences between values between updates to be printed to the debug log, this can be used to determine what bytes mean what by turning things on and off and finding what value change corresponds with that in the log. You are welcome to submit a PR to the underlying library [SolixBLE](https://github.com/flip-dots/SolixBLE) to add support or to raise a GitHub issue with all of the indexes of the values and what they correspond to and I am happy to add support myself. See the underlying libraries [docs](https://solixble.readthedocs.io/en/latest/new_devices.html), this [PR](https://github.com/flip-dots/SolixBLE/pull/8), and this [discussion](https://github.com/thomluther/anker-solix-api/discussions/222) for more information on how to go about decoding different properties.
+
+
+## Disclaimer
+
+Home Assistant Solix BLE is a software library designed to work with Anker Solix/Prime devices. ANKER is a registered trademark of Anker Innovations Limited. This project is not affiliated with, endorsed by, or sponsored by Anker Innovations Limited (Though I wouldn't mind being sponsored 😉). All other trademarks cited herein are the property of their respective owners.
