@@ -329,7 +329,10 @@ class SolixBLEDevice:
                     # allows us to exit immediately when negotiation occurs
                     for _ in range(0, NEGOTIATION_RESPONSE_TIMEOUT):
                         await asyncio.sleep(1)
-                        if self.negotiated:
+                        if self.negotiated or (
+                            self._is_solarbank3_transport
+                            and self._sb3_forensic_complete
+                        ):
                             break
 
         except BleakError:
@@ -941,7 +944,7 @@ class SolixBLEDevice:
             return
 
         if self._sb3_handshake.needs_dynamic_4022:
-            transcript_path = self._sb3_handshake.transcript.export("/config")
+            transcript_path = await self._sb3_handshake.transcript.export("/config")
             self._sb3_transcript_path = str(transcript_path)
             self._sb3_forensic_complete = True
             _LOGGER.error(

@@ -3,6 +3,7 @@
 Stops at the session-bound 4022 boundary and exports an exact transcript.
 """
 from __future__ import annotations
+import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
 import json
@@ -42,7 +43,11 @@ class SB3Transcript:
     def add(self,direction:str,packet:bytes,note:str="")->None:
         p=parse_packet(packet)
         self.events.append({"t":round(time.monotonic()-self.started,6),"direction":direction,"pattern":p.pattern.hex(),"command":p.command.hex(),"payload":p.payload.hex(),"packet":packet.hex(),"note":note})
-    def export(self,directory:str|Path="/config")->Path:
+    async def export(self,directory:str|Path="/config")->Path:
+        """Write the transcript outside Home Assistant's event loop."""
+        return await asyncio.to_thread(self._export_sync, directory)
+
+    def _export_sync(self,directory:str|Path)->Path:
         d=Path(directory); d.mkdir(parents=True,exist_ok=True)
         path=d/f"solix_sb3_transcript_{self.address.replace(':','')}_{int(time.time())}.json"
         path.write_text(json.dumps({"device_name":self.device_name,"address":self.address,"events":self.events},indent=2),encoding="utf-8")
