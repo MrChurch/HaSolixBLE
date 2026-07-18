@@ -153,6 +153,17 @@ class SolixBLEDevice:
         _LOGGER.debug(
             f"Established initial connection to '{self.name}' on attempt {self._connection_attempts}!"
         )
+        _LOGGER.warning("Discovered BLE services for '%s':", self.name)
+
+        for service in self._client.services:
+            _LOGGER.warning("Service %s", service.uuid)
+
+            for characteristic in service.characteristics:
+                _LOGGER.warning(
+                    "  Characteristic %s properties=%s",
+                    characteristic.uuid,
+                    characteristic.properties,
+                )
         try:
             _LOGGER.debug(f"Subscribing to notifications from device '{self.name}'!")
             await self._client.start_notify(
