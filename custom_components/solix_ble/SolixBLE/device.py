@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 )
 from cryptography.hazmat.primitives.padding import PKCS7
 
-from .sb3_protocol import SB3Handshake, SB3State
+from .sb3_protocol import SB3Handshake, SB3State, load_sb3_account_id
 
 from .const import (
     BASE_TIMESTAMP,
@@ -131,7 +131,7 @@ class SolixBLEDevice:
             )
         _LOGGER.warning(
             "TX %s packet: %s",
-            "SB3 forensic" if self._is_solarbank3_transport else "Solix",
+            "SB3 dynamic" if self._is_solarbank3_transport else "Solix",
             packet.hex(),
         )
         await self._client.write_gatt_char(
@@ -142,7 +142,21 @@ class SolixBLEDevice:
         """Send the first negotiation packet for the selected transport."""
         if self._is_solarbank3_transport:
             if self._sb3_handshake is None:
-                self._sb3_handshake = SB3Handshake(self.name, self.address)
+                account_id = await load_sb3_account_id()
+                self._sb3_handshake = SB3Handshake(
+                    self.name, self.address, account_id=account_id
+                )
+                if account_id is None:
+                    _LOGGER.warning(
+                        "No /config/solix_sb3_account_id.txt found. The SB3 test "
+                        "will derive a real session key and stop before 4022."
+                    )
+                else:
+                    _LOGGER.warning(
+                        "Loaded explicit SB3 account ID (%d UTF-8 bytes); one "
+                        "dynamic 4022 authentication attempt is enabled.",
+                        len(account_id.encode("utf-8")),
+                    )
                 packet = self._sb3_handshake.start()
             elif self._sb3_handshake.state is SB3State.IDLE:
                 packet = self._sb3_handshake.start()
@@ -283,7 +297,7 @@ class SolixBLEDevice:
 
                     if self._is_solarbank3_transport and self._sb3_forensic_complete:
                         _LOGGER.warning(
-                            "SB3 forensic handshake stopped safely at dynamic 4022 boundary. "
+                            "SB3 dynamic handshake reached its configured checkpoint. "
                             "Transcript: %s",
                             self._sb3_transcript_path,
                         )
@@ -914,15 +928,13 @@ class SolixBLEDevice:
     async def _process_sb3_negotiation(
         self, pattern: bytes, cmd: bytes, payload: bytes
     ) -> None:
-        """Process A17C5 negotiation up to the dynamic 4022 boundary."""
+        """Process dynamic A17C5 ECDH and the optional 4022 checkpoint."""
         if self._sb3_handshake is None:
             _LOGGER.error(
                 "Received SB3 negotiation response before handshake state was initialized"
             )
             return
 
-        # Rebuild the full packet because the state machine validates framing,
-        # length and XOR checksum and records the exact transcript.
         packet = self._build_packet(pattern, cmd, payload)
         _LOGGER.warning(
             "SB3 negotiation RX pattern=%s cmd=%s payload=%s",
@@ -935,7 +947,7 @@ class SolixBLEDevice:
             next_packet = self._sb3_handshake.receive(packet)
         except Exception:
             _LOGGER.exception(
-                "SB3 forensic state-machine rejected packet cmd=%s", cmd.hex()
+                "SB3 dynamic state machine rejected packet cmd=%s", cmd.hex()
             )
             return
 
@@ -943,16 +955,26 @@ class SolixBLEDevice:
             await self._write_protocol_packet(next_packet)
             return
 
-        if self._sb3_handshake.needs_dynamic_4022:
+        if self._sb3_handshake.checkpoint_complete:
             transcript_path = await self._sb3_handshake.transcript.export("/config")
             self._sb3_transcript_path = str(transcript_path)
             self._sb3_forensic_complete = True
-            _LOGGER.error(
-                "SB3 stopped safely before session-bound 4022. "
-                "Fresh 4821 payload=%s; transcript exported to %s",
-                payload.hex(),
-                transcript_path,
-            )
+
+            if self._sb3_handshake.state is SB3State.NEED_ACCOUNT_ID:
+                _LOGGER.error(
+                    "SB3 dynamic ECDH completed successfully, but no explicit "
+                    "account ID is configured. Stopped safely before 4022; "
+                    "transcript exported to %s",
+                    transcript_path,
+                )
+            elif self._sb3_handshake.state is SB3State.AUTH_RESPONSE_CHECKPOINT:
+                plaintext = self._sb3_handshake.last_decrypted_plaintext or b""
+                _LOGGER.error(
+                    "SB3 dynamic 4022 produced an authenticated 4822 response. "
+                    "Decrypted response=%s; stopped at checkpoint; transcript=%s",
+                    plaintext.hex(),
+                    transcript_path,
+                )
 
     async def _process_legacy_negotiation(self, cmd: bytes, payload: bytes) -> None:
         """Negotiate encryption with the device."""
