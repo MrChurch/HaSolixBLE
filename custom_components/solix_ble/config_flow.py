@@ -16,7 +16,7 @@ from homeassistant.const import CONF_MAC, CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry, selector
-from SolixBLE import Generic
+from .SolixBLE import Generic
 
 from . import get_power_station_class
 from .const import DOMAIN, Models
