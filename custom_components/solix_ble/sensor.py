@@ -24,6 +24,7 @@ from SolixBLE import (
     PrimeCharger250w,
     PrimePowerBank20k,
     Solarbank2,
+    Solarbank3,
     SolixBLEDevice,
 )
 
@@ -117,6 +118,7 @@ async def async_setup_entry(
         F2000,
         F3800,
         Solarbank2,
+        Solarbank3,
         PrimePowerBank20k,
     ]:
         sensors.append(
@@ -166,7 +168,7 @@ async def async_setup_entry(
         )
 
     # Battery charged energy (energy in)
-    if type(device) in [Solarbank2]:
+    if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -229,6 +231,7 @@ async def async_setup_entry(
         F2000,
         F3800,
         Solarbank2,
+        Solarbank3,
         PrimePowerBank20k,
     ]:
         sensors.append(
@@ -258,6 +261,7 @@ async def async_setup_entry(
         C1000G2,
         F3800,
         Solarbank2,
+        Solarbank3,
         PrimePowerBank20k,
     ]:
         sensors.append(
@@ -318,7 +322,7 @@ async def async_setup_entry(
         )
 
     # Solar power in
-    if type(device) in [C300, C300DC, C800, C1000, C1000G2, F2000, F3800, Solarbank2]:
+    if type(device) in [C300, C300DC, C800, C1000, C1000G2, F2000, F3800, Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -330,7 +334,7 @@ async def async_setup_entry(
         )
 
     # Solar yield
-    if type(device) in [Solarbank2]:
+    if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -833,7 +837,7 @@ async def async_setup_entry(
         )
 
     # Serial number
-    if type(device) in [C300, C300DC, C800, C1000, C1000G2, F2000, F3800, Solarbank2]:
+    if type(device) in [C300, C300DC, C800, C1000, C1000G2, F2000, F3800, Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -869,7 +873,7 @@ async def async_setup_entry(
         )
 
     # Average battery percentage across all batteries
-    if type(device) in [F3800, Solarbank2]:
+    if type(device) in [F3800, Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -920,7 +924,7 @@ async def async_setup_entry(
     ######################
 
     # Grid to home power
-    if type(device) in [Solarbank2]:
+    if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -944,7 +948,7 @@ async def async_setup_entry(
         )
 
     # Grid import energy
-    if type(device) in [Solarbank2]:
+    if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -957,7 +961,7 @@ async def async_setup_entry(
         )
 
     # Grid export energy
-    if type(device) in [Solarbank2]:
+    if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -970,7 +974,7 @@ async def async_setup_entry(
         )
 
     # House demand (power used by house)
-    if type(device) in [Solarbank2]:
+    if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -1034,7 +1038,7 @@ async def async_setup_entry(
         )
 
     # Solar PV power in for port 1
-    if type(device) in [Solarbank2]:
+    if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -1046,7 +1050,7 @@ async def async_setup_entry(
         )
 
     # Solar PV power in for port 2
-    if type(device) in [Solarbank2]:
+    if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -1058,7 +1062,7 @@ async def async_setup_entry(
         )
 
     # Solar PV power in for port 3
-    if type(device) in [Solarbank2]:
+    if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -1070,7 +1074,7 @@ async def async_setup_entry(
         )
 
     # Solar PV power in for port 4
-    if type(device) in [Solarbank2]:
+    if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
@@ -1121,6 +1125,42 @@ async def async_setup_entry(
             )
         )
 
+
+    # Solarbank 3 specific sensors
+    if type(device) in [Solarbank3]:
+        sensors.extend(
+            [
+                SolixSensorEntity(
+                    device,
+                    "Battery Power",
+                    "W",
+                    "battery_power",
+                    SensorDeviceClass.POWER,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "Battery Output Energy",
+                    "kWh",
+                    "discharged_energy",
+                    SensorDeviceClass.ENERGY,
+                    state_class=None,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "Grid Power",
+                    "W",
+                    "grid_power",
+                    SensorDeviceClass.POWER,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "House Consumption Power",
+                    "W",
+                    "house_consumption",
+                    SensorDeviceClass.POWER,
+                ),
+            ]
+        )
     async_add_entities(sensors)
 
 
