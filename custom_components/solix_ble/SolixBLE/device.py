@@ -73,8 +73,9 @@ class SolixBLEDevice:
         self._fragment_totals: dict[bytes, int] = {}
         self._data: dict[str, bytes] | None = None
         self._last_data_timestamp: datetime | None = None
-        self._last_packet_timestamp: datetime | None = None
+        self._last_packet_timestamp: float | None = None
         self._negotiation_timestamp: float | None = None
+        self._last_negotiation_request_timestamp: float | None = None
         self._state_changed_callbacks: list[Callable[[], None]] = []
         self._packet_futures: dict[bytes, list[asyncio.Future]] = {}
         self._auto_reconnect_task: asyncio.Task | None = None
@@ -105,14 +106,22 @@ class SolixBLEDevice:
     async def _initiate_negotiations(self, response: bool = True) -> None:
         """Send the negotiation initiation command.
 
-        :param response: Request a GATT write response. Solarbank 3 needs the
-            first pre-notify write to use write-without-response.
+        :param response: Request a GATT write response. Solarbank 3 uses
+            write-without-response for the first pre-notify write.
+        :raises BleakError: If the BLE link or command characteristic is gone.
         """
+        if not self.connected or self._command_characteristic is None:
+            raise BleakError(
+                f"Cannot initiate negotiation with '{self.name}': "
+                "device disconnected or command characteristic unavailable"
+            )
+
         await self._client.write_gatt_char(
             self._command_characteristic,
             bytes.fromhex(NEGOTIATION_COMMAND_0),
             response=response,
         )
+        self._last_negotiation_request_timestamp = time.time()
 
     async def connect(self, max_attempts: int = 3, run_callbacks: bool = True) -> bool:
         """Connect to device.
@@ -230,14 +239,32 @@ class SolixBLEDevice:
                 # While negotiations have not completed
                 while not self.negotiated:
 
-                    # If we have not received any packet from the device in
-                    # any stage then restart negotiations from the start
+                    if not self.connected:
+                        raise BleakError(
+                            f"Device '{self.name}' disconnected during negotiation"
+                        )
+
+                    # Do not send command 0 twice immediately. The Solarbank 3
+                    # pre-notify path has already sent it once. Retry only when
+                    # neither a request nor a received packet has occurred
+                    # within the response timeout.
+                    activity_timestamps = [
+                        timestamp
+                        for timestamp in (
+                            self._last_packet_timestamp,
+                            self._last_negotiation_request_timestamp,
+                        )
+                        if timestamp is not None
+                    ]
+                    last_activity_timestamp = (
+                        max(activity_timestamps) if activity_timestamps else None
+                    )
+
                     if (
-                        self._last_packet_timestamp is None
-                        or (time.time() - self._last_packet_timestamp)
+                        last_activity_timestamp is None
+                        or (time.time() - last_activity_timestamp)
                         > NEGOTIATION_RESPONSE_TIMEOUT
                     ):
-
                         _LOGGER.debug(
                             f"Sending negotiation initiation request to '{self.name}'..."
                         )
@@ -251,6 +278,9 @@ class SolixBLEDevice:
                         if self.negotiated:
                             break
 
+        except BleakError:
+            _LOGGER.exception(f"BLE connection failed while negotiating with '{self.name}'!")
+            return False
         except TimeoutError:
             _LOGGER.exception(f"Timed out attempting to negotiate with '{self.name}'!")
             return False
@@ -1139,6 +1169,7 @@ class SolixBLEDevice:
         self._shared_secret = None
         self._last_packet_timestamp = None
         self._negotiation_timestamp = None
+        self._last_negotiation_request_timestamp = None
         self._command_characteristic = None
         self._telemetry_characteristic = None
         self._packet_futures: dict[bytes, list[asyncio.Future]] = {}
