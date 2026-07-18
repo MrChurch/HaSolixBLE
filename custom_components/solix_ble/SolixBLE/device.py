@@ -26,6 +26,8 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 )
 from cryptography.hazmat.primitives.padding import PKCS7
 
+from .sb3_protocol import SB3Handshake, SB3State
+
 from .const import (
     BASE_TIMESTAMP,
     DEFAULT_METADATA_INT,
@@ -47,50 +49,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# Solarbank 3 A17C5 capture-replay experiment.
-#
-# These packets were captured from the official Android app on 2026-07-18.
-# The new firmware uses command pairs 40xx/48xx and write-without-response.
-# The packet bodies may contain session/account-specific material, therefore this
-# is deliberately labelled as an experimental replay probe rather than a final
-# protocol implementation. It is useful to verify transport order and discover
-# which fields must be generated dynamically.
-SB3_COMMAND_UUID = "8c850002-0302-41c5-b46e-cf057c562025"
-SB3_TELEMETRY_UUID = "8c850003-0302-41c5-b46e-cf057c562025"
-
-SB3_NEGOTIATION_START = bytes.fromhex(
-    "ff09220003000140010a824f0bbd508bb2178c3054ae2df691dab7ce7dd037c5e38b"
-)
-
-# Device response command -> next Android-app packet.
-SB3_NEGOTIATION_NEXT: dict[str, bytes] = {
-    "4801": bytes.fromhex(
-        "ff09290003000140030a824e0bbd508bb25db5286d496f964ade328b233f57fcf51eb1f2639d69c6f9"
-    ),
-    "4803": bytes.fromhex(
-        "ff094a0003000140290a824e0bbd508b9acc816cf1285604b0b741b6b202d4f3b4c28ad6630662ca07b3fef57148a0835a890e253dcdeaf36c2a4ca1d6229283bc963af531b711fd239a"
-    ),
-    "4829": bytes.fromhex(
-        "ff092f0003000140050a824e0bbd508bb25db5286d496f9670823925d138f20cc16133c3ead23c3a1da7e14615bdb8"
-    ),
-    "4805": bytes.fromhex(
-        "ff095c0003000140210ac6acb7576d319c3fa39072ab14c59b8ad8a9898e878cd247a9fc52db2ae237f48ff72be8561f4f2719d194d5536cbb8cdf939506ad84e2fc2ef336cb18891400506d6aadc329ea1011433c2e3d5f8071ec20"
-    ),
-    "4821": bytes.fromhex(
-        "ff0944000300014022a5bfb0fdb2c0ae51a7cfddfb447e2dc8052be8bc907d64fa17ea420aba4d54429a1159438e8c00d2635d844f2030a8ba6d4a34db7589bd29d3f3f2"
-    ),
-    "4822": bytes.fromhex(
-        "ff094a000300014027a5bfb3fdb2c0ae7936fe5920d8b8eab7725689f3990e129f77a3390ca64b4b4bd5385145968f1e877c0c02516c7eebc43f0284cd2bbf9a1eb1e4a801656f200a33"
-    ),
-}
-
-# First status/telemetry request sent after the asynchronous 030101/4827 ready
-# indication. This packet is also capture-derived and may prove session-bound.
-SB3_STATUS_REQUEST = bytes.fromhex(
-    "ff09240003000f4040a5bae0daeca97b885fa10266b7324f66c93dd6480e198fe33c481e"
-)
-
 
 
 class SolixBLEDevice:
@@ -131,6 +89,9 @@ class SolixBLEDevice:
         self._sb3_session_ready: bool = False
         self._sb3_raw_packets: dict[str, bytes] = {}
         self._sb3_raw_fragments: dict[str, dict[int, bytes]] = {}
+        self._sb3_handshake: SB3Handshake | None = None
+        self._sb3_forensic_complete: bool = False
+        self._sb3_transcript_path: str | None = None
 
     def add_callback(self, function: Callable[[], None]) -> None:
         """Register a callback to be run on state updates.
@@ -170,7 +131,7 @@ class SolixBLEDevice:
             )
         _LOGGER.warning(
             "TX %s packet: %s",
-            "SB3 capture-replay" if self._is_solarbank3_transport else "Solix",
+            "SB3 forensic" if self._is_solarbank3_transport else "Solix",
             packet.hex(),
         )
         await self._client.write_gatt_char(
@@ -180,7 +141,18 @@ class SolixBLEDevice:
     async def _initiate_negotiations(self, response: bool = True) -> None:
         """Send the first negotiation packet for the selected transport."""
         if self._is_solarbank3_transport:
-            await self._write_protocol_packet(SB3_NEGOTIATION_START)
+            if self._sb3_handshake is None:
+                self._sb3_handshake = SB3Handshake(self.name, self.address)
+                packet = self._sb3_handshake.start()
+            elif self._sb3_handshake.state is SB3State.IDLE:
+                packet = self._sb3_handshake.start()
+            else:
+                _LOGGER.debug(
+                    "SB3 negotiation already active in state %s; not resending 4001",
+                    self._sb3_handshake.state,
+                )
+                return
+            await self._write_protocol_packet(packet)
         else:
             if not self.connected or self._command_characteristic is None:
                 raise BleakError(
@@ -309,6 +281,15 @@ class SolixBLEDevice:
                 # While negotiations have not completed
                 while not self.negotiated:
 
+                    if self._is_solarbank3_transport and self._sb3_forensic_complete:
+                        _LOGGER.warning(
+                            "SB3 forensic handshake stopped safely at dynamic 4022 boundary. "
+                            "Transcript: %s",
+                            self._sb3_transcript_path,
+                        )
+                        await self._dispose_of_client()
+                        return False
+
                     if not self.connected:
                         raise BleakError(
                             f"Device '{self.name}' disconnected during negotiation"
@@ -331,9 +312,12 @@ class SolixBLEDevice:
                     )
 
                     if (
-                        last_activity_timestamp is None
-                        or (time.time() - last_activity_timestamp)
-                        > NEGOTIATION_RESPONSE_TIMEOUT
+                        not self._is_solarbank3_transport
+                        and (
+                            last_activity_timestamp is None
+                            or (time.time() - last_activity_timestamp)
+                            > NEGOTIATION_RESPONSE_TIMEOUT
+                        )
                     ):
                         _LOGGER.debug(
                             f"Sending negotiation initiation request to '{self.name}'..."
@@ -392,11 +376,10 @@ class SolixBLEDevice:
         :class:`~SolixBLE.devices.c1000g2.C1000G2`).
         """
         if self._is_solarbank3_transport:
-            _LOGGER.warning(
-                "Solarbank 3 capture-replay handshake completed; requesting raw telemetry"
+            _LOGGER.debug(
+                "Solarbank 3 post-connect skipped in forensic build; "
+                "session-bound commands are not replayed"
             )
-            await asyncio.sleep(0.05)
-            await self._write_protocol_packet(SB3_STATUS_REQUEST)
 
     async def disconnect(self) -> None:
         """Disconnect from device and reset internal state.
@@ -928,39 +911,45 @@ class SolixBLEDevice:
     async def _process_sb3_negotiation(
         self, pattern: bytes, cmd: bytes, payload: bytes
     ) -> None:
-        """Replay the command sequence captured from the official A17C5 app."""
-        cmd_hex = cmd.hex()
+        """Process A17C5 negotiation up to the dynamic 4022 boundary."""
+        if self._sb3_handshake is None:
+            _LOGGER.error(
+                "Received SB3 negotiation response before handshake state was initialized"
+            )
+            return
+
+        # Rebuild the full packet because the state machine validates framing,
+        # length and XOR checksum and records the exact transcript.
+        packet = self._build_packet(pattern, cmd, payload)
         _LOGGER.warning(
             "SB3 negotiation RX pattern=%s cmd=%s payload=%s",
             pattern.hex(),
-            cmd_hex,
+            cmd.hex(),
             payload.hex(),
         )
 
-        next_packet = SB3_NEGOTIATION_NEXT.get(cmd_hex)
+        try:
+            next_packet = self._sb3_handshake.receive(packet)
+        except Exception:
+            _LOGGER.exception(
+                "SB3 forensic state-machine rejected packet cmd=%s", cmd.hex()
+            )
+            return
+
         if next_packet is not None:
             await self._write_protocol_packet(next_packet)
             return
 
-        if cmd_hex == "4827":
-            if pattern.hex() == "030101":
-                self._sb3_session_ready = True
-                self._negotiation_timestamp = time.time()
-                _LOGGER.warning(
-                    "SB3 session-ready indication received. Capture-replay handshake accepted."
-                )
-            else:
-                _LOGGER.warning(
-                    "SB3 4827 acknowledgement received; waiting for asynchronous "
-                    "030101/4827 session-ready indication"
-                )
-            return
-
-        _LOGGER.warning(
-            "Unexpected SB3 negotiation command %s with payload %s",
-            cmd_hex,
-            payload.hex(),
-        )
+        if self._sb3_handshake.needs_dynamic_4022:
+            transcript_path = self._sb3_handshake.transcript.export("/config")
+            self._sb3_transcript_path = str(transcript_path)
+            self._sb3_forensic_complete = True
+            _LOGGER.error(
+                "SB3 stopped safely before session-bound 4022. "
+                "Fresh 4821 payload=%s; transcript exported to %s",
+                payload.hex(),
+                transcript_path,
+            )
 
     async def _process_legacy_negotiation(self, cmd: bytes, payload: bytes) -> None:
         """Negotiate encryption with the device."""
@@ -1344,6 +1333,9 @@ class SolixBLEDevice:
         self._sb3_session_ready = False
         self._sb3_raw_packets = {}
         self._sb3_raw_fragments = {}
+        self._sb3_handshake = None
+        self._sb3_forensic_complete = False
+        self._sb3_transcript_path = None
         self._last_packet_timestamp = None
         self._negotiation_timestamp = None
         self._last_negotiation_request_timestamp = None
