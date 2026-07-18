@@ -102,12 +102,16 @@ class SolixBLEDevice:
         """
         self._state_changed_callbacks.remove(function)
 
-    async def _initiate_negotiations(self) -> None:
-        """Send the negotiation initiation command."""
+    async def _initiate_negotiations(self, response: bool = True) -> None:
+        """Send the negotiation initiation command.
+
+        :param response: Request a GATT write response. Solarbank 3 needs the
+            first pre-notify write to use write-without-response.
+        """
         await self._client.write_gatt_char(
             self._command_characteristic,
             bytes.fromhex(NEGOTIATION_COMMAND_0),
-            response=True,
+            response=response,
         )
 
     async def connect(self, max_attempts: int = 3, run_callbacks: bool = True) -> bool:
@@ -194,10 +198,25 @@ class SolixBLEDevice:
                 f"Telemetry characteristic {self._UUID_TELEMETRY} was not found"
             )
 
+        # Solarbank 3 closes the ESPHome GATT connection when notifications
+        # are enabled before the first protocol write. Start its negotiation
+        # with a write-without-response, then subscribe immediately.
+        solarbank3_pre_notify = (
+            self._UUID_COMMAND.lower()
+            == "8c850002-0302-41c5-b46e-cf057c562025"
+        )
+
         try:
+            if solarbank3_pre_notify:
+                _LOGGER.warning(
+                    "Solarbank 3 transport: sending initial negotiation "
+                    "write before enabling notifications"
+                )
+                await self._initiate_negotiations(response=False)
+
             _LOGGER.debug(f"Subscribing to notifications from device '{self.name}'!")
             await self._client.start_notify(
-                self._UUID_TELEMETRY,
+                self._telemetry_characteristic,
                 partial(self._process_notification, self._client),
             )
         except BleakError:
@@ -1120,6 +1139,8 @@ class SolixBLEDevice:
         self._shared_secret = None
         self._last_packet_timestamp = None
         self._negotiation_timestamp = None
+        self._command_characteristic = None
+        self._telemetry_characteristic = None
         self._packet_futures: dict[bytes, list[asyncio.Future]] = {}
 
     def __str__(self) -> str:
