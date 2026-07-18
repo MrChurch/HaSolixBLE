@@ -1,3 +1,11 @@
+!!! FORK FOR TESTING
+PLEASE USE ORIGINAL REPO FROM: https://github.com/flip-dots/HaSolixBLE
+!!! FORK FOR TESTING
+PLEASE USE ORIGINAL REPO FROM: https://github.com/flip-dots/HaSolixBLE
+!!! FORK FOR TESTING
+PLEASE USE ORIGINAL REPO FROM: https://github.com/flip-dots/HaSolixBLE
+
+
 # Home Assistant Solix BLE
 
 Home Assistant integration for monitoring and controlling Anker devices using a Bluetooth connection.
