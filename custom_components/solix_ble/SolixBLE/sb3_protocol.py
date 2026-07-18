@@ -1,12 +1,14 @@
 """Solarbank 3 A17C5 secure BLE handshake helpers.
 
 Implements the authenticated outer AES-GCM layer observed in the official app,
-generates a fresh secp256r1 key pair for every connection, decrypts the 4821
-response and derives the per-session AES-GCM key and nonce.
+generates a fresh secp256r1 key pair for every connection, derives the per-session
+AES-GCM material, sends a dynamic 4022 identity-authentication request and
+strictly validates the authenticated 4822 success response.
 
-The optional 4022 account-authentication request is sent only when an account ID
-is explicitly provided in ``/config/solix_sb3_account_id.txt``.  Without it the
-state machine stops safely after proving that dynamic ECDH key derivation works.
+The account identifier is loaded from ``/config/solix_sb3_account_id.txt`` and
+must be the 40-character hexadecimal Anker cloud user ID.  The next protocol step
+(4027 user-security authentication) is deliberately not guessed: after a proven
+4822 success response the state machine stops at an explicit safe boundary.
 """
 
 from __future__ import annotations
@@ -28,6 +30,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 _LOGGER = logging.getLogger(__name__)
 
 SB3_ACCOUNT_ID_PATH = Path("/config/solix_sb3_account_id.txt")
+SB3_ACCOUNT_ID_HEX_LENGTH = 40
+SB3_4822_SUCCESS_PLAINTEXT = b"\x04"
 
 # Initial secure-conference material reconstructed from the A17C5 app path.
 # AES-GCM returns ciphertext followed by a 16-byte authentication tag.
@@ -60,7 +64,7 @@ class SB3State(str, Enum):
     WAIT_4821 = "wait_4821"
     NEED_ACCOUNT_ID = "need_account_id"
     WAIT_4822 = "wait_4822"
-    AUTH_RESPONSE_CHECKPOINT = "auth_response_checkpoint"
+    IDENTITY_AUTHENTICATED = "identity_authenticated"
     FAILED = "failed"
 
 
@@ -158,13 +162,23 @@ def build_public_key_request(public_key: ec.EllipticCurvePublicKey) -> bytes:
     return build_packet(b"\x03\x00\x01", b"\x40\x21", encrypted)
 
 
+
+def validate_sb3_account_id(account_id: str) -> str:
+    """Validate and normalize the Anker cloud user ID used by 4022."""
+    value = account_id.strip().lower()
+    if len(value) != SB3_ACCOUNT_ID_HEX_LENGTH:
+        raise ValueError(
+            "Solarbank 3 account ID must be exactly "
+            f"{SB3_ACCOUNT_ID_HEX_LENGTH} hexadecimal characters"
+        )
+    if any(char not in "0123456789abcdef" for char in value):
+        raise ValueError("Solarbank 3 account ID contains non-hexadecimal characters")
+    return value
+
 def build_account_auth_plaintext(account_id: str, timestamp: int | None = None) -> bytes:
     """Build the A1 timestamp + A2 account ID parameter set used by 4022."""
-    account_bytes = account_id.encode("utf-8")
-    if not account_bytes:
-        raise ValueError("Solarbank 3 account ID is empty")
-    if len(account_bytes) > 255:
-        raise ValueError("Solarbank 3 account ID exceeds 255 UTF-8 bytes")
+    normalized_account_id = validate_sb3_account_id(account_id)
+    account_bytes = normalized_account_id.encode("ascii")
     if timestamp is None:
         timestamp = int(time.time())
     if not 0 <= timestamp <= 0xFFFFFFFF:
@@ -199,15 +213,9 @@ async def load_sb3_account_id(path: Path = SB3_ACCOUNT_ID_PATH) -> str | None:
         return value or None
 
     value = await asyncio.to_thread(_read)
-    if value is not None:
-        byte_length = len(value.encode("utf-8"))
-        if byte_length != 34:
-            _LOGGER.warning(
-                "Configured SB3 account ID has %d UTF-8 bytes; successful Android "
-                "captures imply 34 bytes. The test will still use it once.",
-                byte_length,
-            )
-    return value
+    if value is None:
+        return None
+    return validate_sb3_account_id(value)
 
 
 @dataclass(slots=True)
@@ -356,10 +364,15 @@ class SB3Handshake:
                 self.session_key, self.session_nonce, parsed.payload
             )
             self.last_decrypted_plaintext = plaintext
-            self.state = SB3State.AUTH_RESPONSE_CHECKPOINT
+            if plaintext != SB3_4822_SUCCESS_PLAINTEXT:
+                self.state = SB3State.FAILED
+                raise ValueError(
+                    "SB3 4822 identity-authentication response was authenticated "
+                    f"but not successful: plaintext={plaintext.hex()}"
+                )
+            self.state = SB3State.IDENTITY_AUTHENTICATED
             _LOGGER.warning(
-                "SB3 4822 authenticated and decrypted: plaintext=%s",
-                plaintext.hex(),
+                "SB3 identity authentication accepted: authenticated 4822 plaintext=04"
             )
             return None
 
@@ -367,8 +380,13 @@ class SB3Handshake:
         return reply
 
     @property
+    def identity_authenticated(self) -> bool:
+        """Return True only after an authenticated 4822 success response."""
+        return self.state is SB3State.IDENTITY_AUTHENTICATED
+
+    @property
     def checkpoint_complete(self) -> bool:
         return self.state in {
             SB3State.NEED_ACCOUNT_ID,
-            SB3State.AUTH_RESPONSE_CHECKPOINT,
+            SB3State.IDENTITY_AUTHENTICATED,
         }

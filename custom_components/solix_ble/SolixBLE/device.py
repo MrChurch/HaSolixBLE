@@ -90,7 +90,8 @@ class SolixBLEDevice:
         self._sb3_raw_packets: dict[str, bytes] = {}
         self._sb3_raw_fragments: dict[str, dict[int, bytes]] = {}
         self._sb3_handshake: SB3Handshake | None = None
-        self._sb3_forensic_complete: bool = False
+        self._sb3_checkpoint_complete: bool = False
+        self._sb3_identity_authenticated: bool = False
         self._sb3_transcript_path: str | None = None
 
     def add_callback(self, function: Callable[[], None]) -> None:
@@ -148,13 +149,13 @@ class SolixBLEDevice:
                 )
                 if account_id is None:
                     _LOGGER.warning(
-                        "No /config/solix_sb3_account_id.txt found. The SB3 test "
-                        "will derive a real session key and stop before 4022."
+                        "No /config/solix_sb3_account_id.txt found. The SB3 handshake "
+                        "will derive a session key and stop before identity authentication."
                     )
                 else:
                     _LOGGER.warning(
-                        "Loaded explicit SB3 account ID (%d UTF-8 bytes); one "
-                        "dynamic 4022 authentication attempt is enabled.",
+                        "Loaded validated SB3 cloud account ID (%d ASCII bytes); "
+                        "dynamic 4022 identity authentication is enabled.",
                         len(account_id.encode("utf-8")),
                     )
                 packet = self._sb3_handshake.start()
@@ -295,9 +296,9 @@ class SolixBLEDevice:
                 # While negotiations have not completed
                 while not self.negotiated:
 
-                    if self._is_solarbank3_transport and self._sb3_forensic_complete:
+                    if self._is_solarbank3_transport and self._sb3_checkpoint_complete:
                         _LOGGER.warning(
-                            "SB3 dynamic handshake reached its configured checkpoint. "
+                            "SB3 handshake reached a safe implementation boundary. "
                             "Transcript: %s",
                             self._sb3_transcript_path,
                         )
@@ -345,7 +346,7 @@ class SolixBLEDevice:
                         await asyncio.sleep(1)
                         if self.negotiated or (
                             self._is_solarbank3_transport
-                            and self._sb3_forensic_complete
+                            and self._sb3_checkpoint_complete
                         ):
                             break
 
@@ -928,7 +929,7 @@ class SolixBLEDevice:
     async def _process_sb3_negotiation(
         self, pattern: bytes, cmd: bytes, payload: bytes
     ) -> None:
-        """Process dynamic A17C5 ECDH and the optional 4022 checkpoint."""
+        """Process dynamic A17C5 ECDH and integrated 4022 identity authentication."""
         if self._sb3_handshake is None:
             _LOGGER.error(
                 "Received SB3 negotiation response before handshake state was initialized"
@@ -958,7 +959,7 @@ class SolixBLEDevice:
         if self._sb3_handshake.checkpoint_complete:
             transcript_path = await self._sb3_handshake.transcript.export("/config")
             self._sb3_transcript_path = str(transcript_path)
-            self._sb3_forensic_complete = True
+            self._sb3_checkpoint_complete = True
 
             if self._sb3_handshake.state is SB3State.NEED_ACCOUNT_ID:
                 _LOGGER.error(
@@ -967,12 +968,13 @@ class SolixBLEDevice:
                     "transcript exported to %s",
                     transcript_path,
                 )
-            elif self._sb3_handshake.state is SB3State.AUTH_RESPONSE_CHECKPOINT:
-                plaintext = self._sb3_handshake.last_decrypted_plaintext or b""
-                _LOGGER.error(
-                    "SB3 dynamic 4022 produced an authenticated 4822 response. "
-                    "Decrypted response=%s; stopped at checkpoint; transcript=%s",
-                    plaintext.hex(),
+            elif self._sb3_handshake.state is SB3State.IDENTITY_AUTHENTICATED:
+                self._sb3_identity_authenticated = True
+                _LOGGER.warning(
+                    "SB3 identity authentication is fully integrated and accepted "
+                    "(dynamic 4022 -> authenticated 4822/04). The next unimplemented "
+                    "step is dynamic 4027 user-security authentication; disconnecting "
+                    "safely. Transcript: %s",
                     transcript_path,
                 )
 
@@ -1356,10 +1358,11 @@ class SolixBLEDevice:
         self._fragment_totals = {}
         self._shared_secret = None
         self._sb3_session_ready = False
+        self._sb3_identity_authenticated = False
         self._sb3_raw_packets = {}
         self._sb3_raw_fragments = {}
         self._sb3_handshake = None
-        self._sb3_forensic_complete = False
+        self._sb3_checkpoint_complete = False
         self._sb3_transcript_path = None
         self._last_packet_timestamp = None
         self._negotiation_timestamp = None
