@@ -48,6 +48,50 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Solarbank 3 A17C5 capture-replay experiment.
+#
+# These packets were captured from the official Android app on 2026-07-18.
+# The new firmware uses command pairs 40xx/48xx and write-without-response.
+# The packet bodies may contain session/account-specific material, therefore this
+# is deliberately labelled as an experimental replay probe rather than a final
+# protocol implementation. It is useful to verify transport order and discover
+# which fields must be generated dynamically.
+SB3_COMMAND_UUID = "8c850002-0302-41c5-b46e-cf057c562025"
+SB3_TELEMETRY_UUID = "8c850003-0302-41c5-b46e-cf057c562025"
+
+SB3_NEGOTIATION_START = bytes.fromhex(
+    "ff09220003000140010a824f0bbd508bb2178c3054ae2df691dab7ce7dd037c5e38b"
+)
+
+# Device response command -> next Android-app packet.
+SB3_NEGOTIATION_NEXT: dict[str, bytes] = {
+    "4801": bytes.fromhex(
+        "ff09290003000140030a824e0bbd508bb25db5286d496f964ade328b233f57fcf51eb1f2639d69c6f9"
+    ),
+    "4803": bytes.fromhex(
+        "ff094a0003000140290a824e0bbd508b9acc816cf1285604b0b741b6b202d4f3b4c28ad6630662ca07b3fef57148a0835a890e253dcdeaf36c2a4ca1d6229283bc963af531b711fd239a"
+    ),
+    "4829": bytes.fromhex(
+        "ff092f0003000140050a824e0bbd508bb25db5286d496f9670823925d138f20cc16133c3ead23c3a1da7e14615bdb8"
+    ),
+    "4805": bytes.fromhex(
+        "ff095c0003000140210ac6acb7576d319c3fa39072ab14c59b8ad8a9898e878cd247a9fc52db2ae237f48ff72be8561f4f2719d194d5536cbb8cdf939506ad84e2fc2ef336cb18891400506d6aadc329ea1011433c2e3d5f8071ec20"
+    ),
+    "4821": bytes.fromhex(
+        "ff0944000300014022a5bfb0fdb2c0ae51a7cfddfb447e2dc8052be8bc907d64fa17ea420aba4d54429a1159438e8c00d2635d844f2030a8ba6d4a34db7589bd29d3f3f2"
+    ),
+    "4822": bytes.fromhex(
+        "ff094a000300014027a5bfb3fdb2c0ae7936fe5920d8b8eab7725689f3990e129f77a3390ca64b4b4bd5385145968f1e877c0c02516c7eebc43f0284cd2bbf9a1eb1e4a801656f200a33"
+    ),
+}
+
+# First status/telemetry request sent after the asynchronous 030101/4827 ready
+# indication. This packet is also capture-derived and may prove session-bound.
+SB3_STATUS_REQUEST = bytes.fromhex(
+    "ff09240003000f4040a5bae0daeca97b885fa10266b7324f66c93dd6480e198fe33c481e"
+)
+
+
 
 class SolixBLEDevice:
     """Solix BLE device object."""
@@ -84,6 +128,9 @@ class SolixBLEDevice:
         self._shared_secret: bytes | None = None
         self._command_characteristic = None
         self._telemetry_characteristic = None
+        self._sb3_session_ready: bool = False
+        self._sb3_raw_packets: dict[str, bytes] = {}
+        self._sb3_raw_fragments: dict[str, dict[int, bytes]] = {}
 
     def add_callback(self, function: Callable[[], None]) -> None:
         """Register a callback to be run on state updates.
@@ -103,24 +150,48 @@ class SolixBLEDevice:
         """
         self._state_changed_callbacks.remove(function)
 
-    async def _initiate_negotiations(self, response: bool = True) -> None:
-        """Send the negotiation initiation command.
+    @property
+    def _is_solarbank3_transport(self) -> bool:
+        """Return True only for the A17C5/Solarbank 3 model."""
+        model_name = type(self).__name__.lower()
+        advertised_name = self.name.lower()
+        return (
+            model_name == "solarbank3"
+            or "solarbank 3" in advertised_name
+            or "a17c5" in advertised_name
+        )
 
-        :param response: Request a GATT write response. Solarbank 3 uses
-            write-without-response for the first pre-notify write.
-        :raises BleakError: If the BLE link or command characteristic is gone.
-        """
+    async def _write_protocol_packet(self, packet: bytes) -> None:
+        """Write one application packet using the transport seen in the app."""
         if not self.connected or self._command_characteristic is None:
             raise BleakError(
-                f"Cannot initiate negotiation with '{self.name}': "
+                f"Cannot write protocol packet to '{self.name}': "
                 "device disconnected or command characteristic unavailable"
             )
-
-        await self._client.write_gatt_char(
-            self._command_characteristic,
-            bytes.fromhex(NEGOTIATION_COMMAND_0),
-            response=response,
+        _LOGGER.warning(
+            "TX %s packet: %s",
+            "SB3 capture-replay" if self._is_solarbank3_transport else "Solix",
+            packet.hex(),
         )
+        await self._client.write_gatt_char(
+            self._command_characteristic, packet, response=False
+        )
+
+    async def _initiate_negotiations(self, response: bool = True) -> None:
+        """Send the first negotiation packet for the selected transport."""
+        if self._is_solarbank3_transport:
+            await self._write_protocol_packet(SB3_NEGOTIATION_START)
+        else:
+            if not self.connected or self._command_characteristic is None:
+                raise BleakError(
+                    f"Cannot initiate negotiation with '{self.name}': "
+                    "device disconnected or command characteristic unavailable"
+                )
+            await self._client.write_gatt_char(
+                self._command_characteristic,
+                bytes.fromhex(NEGOTIATION_COMMAND_0),
+                response=response,
+            )
         self._last_negotiation_request_timestamp = time.time()
 
     async def connect(self, max_attempts: int = 3, run_callbacks: bool = True) -> bool:
@@ -207,27 +278,26 @@ class SolixBLEDevice:
                 f"Telemetry characteristic {self._UUID_TELEMETRY} was not found"
             )
 
-        # Solarbank 3 closes the ESPHome GATT connection when notifications
-        # are enabled before the first protocol write. Start its negotiation
-        # with a write-without-response, then subscribe immediately.
-        solarbank3_pre_notify = (
-            self._UUID_COMMAND.lower()
-            == "8c850002-0302-41c5-b46e-cf057c562025"
-        )
-
+        # The successful Android trace enables notifications first, negotiates
+        # MTU 256, then sends the first 4001 packet as a Write Command.
         try:
-            if solarbank3_pre_notify:
-                _LOGGER.warning(
-                    "Solarbank 3 transport: sending initial negotiation "
-                    "write before enabling notifications"
-                )
-                await self._initiate_negotiations(response=False)
-
             _LOGGER.debug(f"Subscribing to notifications from device '{self.name}'!")
             await self._client.start_notify(
                 self._telemetry_characteristic,
                 partial(self._process_notification, self._client),
             )
+
+            if self._is_solarbank3_transport:
+                mtu = getattr(self._client, "mtu_size", None)
+                _LOGGER.warning(
+                    "Solarbank 3 transport ready: notifications enabled, MTU=%s; "
+                    "waiting before first 4001 Write Command",
+                    mtu,
+                )
+                # The app waited roughly 2.8 s after MTU exchange. A short
+                # settling delay also helps ESPHome Bluetooth proxies.
+                await asyncio.sleep(2.5)
+                await self._initiate_negotiations(response=False)
         except BleakError:
             _LOGGER.exception(f"Error subscribing/negotiating with '{self.name}'!")
             return False
@@ -321,7 +391,12 @@ class SolixBLEDevice:
         for example, send a subscribe command to start a telemetry stream (see
         :class:`~SolixBLE.devices.c1000g2.C1000G2`).
         """
-        pass
+        if self._is_solarbank3_transport:
+            _LOGGER.warning(
+                "Solarbank 3 capture-replay handshake completed; requesting raw telemetry"
+            )
+            await asyncio.sleep(0.05)
+            await self._write_protocol_packet(SB3_STATUS_REQUEST)
 
     async def disconnect(self) -> None:
         """Disconnect from device and reset internal state.
@@ -364,7 +439,9 @@ class SolixBLEDevice:
 
         :returns: True/False if session has been negotiated and connected.
         """
-        return self.connected and self._shared_secret is not None
+        return self.connected and (
+            self._shared_secret is not None or self._sb3_session_ready
+        )
 
     @property
     def available(self) -> bool:
@@ -734,12 +811,21 @@ class SolixBLEDevice:
         match pattern.hex():
 
             # Negotiation messages
-            case "030001":
-                _LOGGER.debug("Received negotiation message!")
-                return await self._process_negotiation(cmd, payload)
+            case "030001" | "030101":
+                _LOGGER.debug("Received negotiation/session-ready message!")
+                return await self._process_negotiation(pattern, cmd, payload)
 
             # Session messages
             case "03010f" | "030111":
+
+                if self._is_solarbank3_transport:
+                    # The new A17C5 payload is not compatible with the old
+                    # static ECDH + AES-CBC decoder. Preserve and reassemble it
+                    # verbatim for the next decoding step instead of feeding it
+                    # to AES.
+                    return await self._process_sb3_raw_telemetry(
+                        pattern, cmd, payload
+                    )
 
                 # Non-encrypted telemetry messages
                 if cmd.hex() == "0300":
@@ -788,7 +874,95 @@ class SolixBLEDevice:
                     f"Unexpected packet type '{pattern}' sent by device! Packet: {data.hex()}"
                 )
 
-    async def _process_negotiation(self, cmd: bytes, payload: bytes) -> None:
+    async def _process_sb3_raw_telemetry(
+        self, pattern: bytes, cmd: bytes, payload: bytes
+    ) -> None:
+        """Store raw A17C5 session payloads and join 0x12/0x22 fragments."""
+        cmd_hex = cmd.hex()
+        complete_payload = bytes(payload)
+
+        if payload:
+            fragment_index = (payload[0] >> 4) & 0x0F
+            fragment_total = payload[0] & 0x0F
+            # Captured c840/c405 messages use 0x12 then 0x22. Guard the
+            # heuristic so ordinary payload bytes such as 0xA5 are not
+            # mistaken for fragment markers.
+            if 1 <= fragment_index <= fragment_total <= 4:
+                fragments = self._sb3_raw_fragments.setdefault(cmd_hex, {})
+                if fragment_index == 1:
+                    fragments.clear()
+                fragments[fragment_index] = bytes(payload[1:])
+                _LOGGER.warning(
+                    "SB3 raw fragment RX pattern=%s cmd=%s fragment=%d/%d len=%d",
+                    pattern.hex(),
+                    cmd_hex,
+                    fragment_index,
+                    fragment_total,
+                    len(payload) - 1,
+                )
+                if len(fragments) < fragment_total:
+                    return
+                complete_payload = b"".join(
+                    fragments[index] for index in range(1, fragment_total + 1)
+                )
+                self._sb3_raw_fragments.pop(cmd_hex, None)
+
+        self._sb3_raw_packets[cmd_hex] = complete_payload
+        self._last_data_timestamp = datetime.now()
+        _LOGGER.warning(
+            "SB3 raw message RX pattern=%s cmd=%s len=%d payload=%s",
+            pattern.hex(),
+            cmd_hex,
+            len(complete_payload),
+            complete_payload.hex(),
+        )
+
+    async def _process_negotiation(
+        self, pattern: bytes, cmd: bytes, payload: bytes
+    ) -> None:
+        """Dispatch legacy or Solarbank 3 negotiation handling."""
+        if self._is_solarbank3_transport:
+            return await self._process_sb3_negotiation(pattern, cmd, payload)
+        return await self._process_legacy_negotiation(cmd, payload)
+
+    async def _process_sb3_negotiation(
+        self, pattern: bytes, cmd: bytes, payload: bytes
+    ) -> None:
+        """Replay the command sequence captured from the official A17C5 app."""
+        cmd_hex = cmd.hex()
+        _LOGGER.warning(
+            "SB3 negotiation RX pattern=%s cmd=%s payload=%s",
+            pattern.hex(),
+            cmd_hex,
+            payload.hex(),
+        )
+
+        next_packet = SB3_NEGOTIATION_NEXT.get(cmd_hex)
+        if next_packet is not None:
+            await self._write_protocol_packet(next_packet)
+            return
+
+        if cmd_hex == "4827":
+            if pattern.hex() == "030101":
+                self._sb3_session_ready = True
+                self._negotiation_timestamp = time.time()
+                _LOGGER.warning(
+                    "SB3 session-ready indication received. Capture-replay handshake accepted."
+                )
+            else:
+                _LOGGER.warning(
+                    "SB3 4827 acknowledgement received; waiting for asynchronous "
+                    "030101/4827 session-ready indication"
+                )
+            return
+
+        _LOGGER.warning(
+            "Unexpected SB3 negotiation command %s with payload %s",
+            cmd_hex,
+            payload.hex(),
+        )
+
+    async def _process_legacy_negotiation(self, cmd: bytes, payload: bytes) -> None:
         """Negotiate encryption with the device."""
 
         match cmd.hex():
@@ -891,7 +1065,7 @@ class SolixBLEDevice:
 
             case _:
                 _LOGGER.warning(
-                    f"Received unexpected negotiation request response from device! cmd: '{cmd}', parameters: '{self._parameters_to_str(parameters)}'"
+                    f"Received unexpected negotiation response from device! cmd={cmd.hex()} payload={payload.hex()}"
                 )
 
     def _checksum(self, packet: bytes) -> bytes:
@@ -1167,6 +1341,9 @@ class SolixBLEDevice:
         self._fragment_buffers = {}
         self._fragment_totals = {}
         self._shared_secret = None
+        self._sb3_session_ready = False
+        self._sb3_raw_packets = {}
+        self._sb3_raw_fragments = {}
         self._last_packet_timestamp = None
         self._negotiation_timestamp = None
         self._last_negotiation_request_timestamp = None
