@@ -81,6 +81,8 @@ class SolixBLEDevice:
         self._disconnect_event: asyncio.Event = asyncio.Event()
         self._connection_attempts: int = 0
         self._shared_secret: bytes | None = None
+        self._command_characteristic = None
+        self._telemetry_characteristic = None
 
     def add_callback(self, function: Callable[[], None]) -> None:
         """Register a callback to be run on state updates.
@@ -103,7 +105,7 @@ class SolixBLEDevice:
     async def _initiate_negotiations(self) -> None:
         """Send the negotiation initiation command."""
         await self._client.write_gatt_char(
-            self._UUID_COMMAND,
+            self._command_characteristic,
             bytes.fromhex(NEGOTIATION_COMMAND_0),
             response=True,
         )
@@ -153,21 +155,50 @@ class SolixBLEDevice:
         _LOGGER.debug(
             f"Established initial connection to '{self.name}' on attempt {self._connection_attempts}!"
         )
-        _LOGGER.warning("Discovered BLE services for '%s':", self.name)
 
+        _LOGGER.warning("Discovered BLE services for '%s':", self.name)
         for service in self._client.services:
             _LOGGER.warning("Service %s", service.uuid)
-
             for characteristic in service.characteristics:
                 _LOGGER.warning(
                     "  Characteristic %s properties=%s",
                     characteristic.uuid,
                     characteristic.properties,
                 )
+
+        self._command_characteristic = next(
+            (
+                characteristic
+                for service in self._client.services
+                for characteristic in service.characteristics
+                if characteristic.uuid.lower() == self._UUID_COMMAND.lower()
+            ),
+            None,
+        )
+        self._telemetry_characteristic = next(
+            (
+                characteristic
+                for service in self._client.services
+                for characteristic in service.characteristics
+                if characteristic.uuid.lower() == self._UUID_TELEMETRY.lower()
+            ),
+            None,
+        )
+
+        if self._command_characteristic is None:
+            raise BleakError(
+                f"Command characteristic {self._UUID_COMMAND} was not found"
+            )
+        if self._telemetry_characteristic is None:
+            raise BleakError(
+                f"Telemetry characteristic {self._UUID_TELEMETRY} was not found"
+            )
+
         try:
             _LOGGER.debug(f"Subscribing to notifications from device '{self.name}'!")
             await self._client.start_notify(
-                 self._UUID_TELEMETRY, partial(self._process_notification, self._client)
+                self._telemetry_characteristic,
+                partial(self._process_notification, self._client),
             )
         except BleakError:
             _LOGGER.exception(f"Error subscribing/negotiating with '{self.name}'!")
@@ -727,7 +758,7 @@ class SolixBLEDevice:
                 _LOGGER.debug(f"Parameters: {self._parameters_to_str(parameters)}")
                 _LOGGER.debug("Sending stage 1 response message...")
                 return await self._client.write_gatt_char(
-                    self._UUID_COMMAND, bytes.fromhex(NEGOTIATION_COMMAND_1)
+                    self._command_characteristic, bytes.fromhex(NEGOTIATION_COMMAND_1)
                 )
 
             # Negotiation stage 2
@@ -739,7 +770,7 @@ class SolixBLEDevice:
                 _LOGGER.debug(f"Parameters: {self._parameters_to_str(parameters)}")
                 _LOGGER.debug("Sending stage 2 response message...")
                 return await self._client.write_gatt_char(
-                    self._UUID_COMMAND, bytes.fromhex(NEGOTIATION_COMMAND_2)
+                    self._command_characteristic, bytes.fromhex(NEGOTIATION_COMMAND_2)
                 )
 
             # Negotiation stage 3
@@ -752,7 +783,7 @@ class SolixBLEDevice:
                 self._negotiation_timestamp = time.time()
                 _LOGGER.debug("Sending stage 3 response message...")
                 return await self._client.write_gatt_char(
-                    self._UUID_COMMAND, bytes.fromhex(NEGOTIATION_COMMAND_3)
+                    self._command_characteristic, bytes.fromhex(NEGOTIATION_COMMAND_3)
                 )
 
             # Negotiation stage 4
@@ -764,7 +795,7 @@ class SolixBLEDevice:
                 _LOGGER.debug(f"Parameters: {self._parameters_to_str(parameters)}")
                 _LOGGER.debug("Sending stage 4 response message...")
                 return await self._client.write_gatt_char(
-                    self._UUID_COMMAND, bytes.fromhex(NEGOTIATION_COMMAND_4)
+                    self._command_characteristic, bytes.fromhex(NEGOTIATION_COMMAND_4)
                 )
 
             # Negotiation stage 5
@@ -794,7 +825,7 @@ class SolixBLEDevice:
 
                 _LOGGER.debug("Sending stage 5 response message...")
                 return await self._client.write_gatt_char(
-                    self._UUID_COMMAND, bytes.fromhex(NEGOTIATION_COMMAND_5)
+                    self._command_characteristic, bytes.fromhex(NEGOTIATION_COMMAND_5)
                 )
 
             # Negotiation stage 6 (Optional)
@@ -874,7 +905,7 @@ class SolixBLEDevice:
         _LOGGER.debug(f"Sending encrypted packet: {packet.hex()}")
 
         # Send packet
-        await self._client.write_gatt_char(self._UUID_COMMAND, packet)
+        await self._client.write_gatt_char(self._command_characteristic, packet)
 
     def _register_future(
         self, future: asyncio.Future, pattern: bytes, cmd: bytes
