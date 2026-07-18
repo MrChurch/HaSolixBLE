@@ -197,7 +197,7 @@ class SolixBLEDevice:
         try:
             _LOGGER.debug(f"Subscribing to notifications from device '{self.name}'!")
             await self._client.start_notify(
-                self._telemetry_characteristic,
+                self._UUID_TELEMETRY,
                 partial(self._process_notification, self._client),
             )
         except BleakError:
