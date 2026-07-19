@@ -9,6 +9,7 @@ from custom_components.solix_ble.SolixBLE.sb3_protocol import (
     build_packet,
     build_security_auth_packet,
     build_security_auth_plaintext,
+    build_sb3_max_load_plaintext,
     build_sb3_schedule_plaintext,
     build_telemetry_request_plaintext,
     parse_packet,
@@ -81,3 +82,27 @@ def test_sb3_schedule_matches_captured_405e_layout() -> None:
         0xCE if index in {18 + 22 * day for day in range(7)} else 0
         for index in range(len(first))
     ]
+
+
+def test_sb3_max_load_matches_captured_4080_layout() -> None:
+    """A 4080 write contains the selected little-endian watt limit."""
+    assert build_sb3_max_load_plaintext(350) == bytes.fromhex(
+        "a10121a203025e01a303020000"
+    )
+    assert build_sb3_max_load_plaintext(600) == bytes.fromhex(
+        "a10121a203025802a303020000"
+    )
+    assert build_sb3_max_load_plaintext(800) == bytes.fromhex(
+        "a10121a203022003a303020000"
+    )
+    assert build_sb3_max_load_plaintext(1200) == bytes.fromhex(
+        "a10121a20302b004a303020000"
+    )
+
+
+def test_sb3_max_load_rejects_values_not_exposed_by_the_app() -> None:
+    """Only the four captured Android app options are accepted."""
+    import pytest
+
+    with pytest.raises(ValueError):
+        build_sb3_max_load_plaintext(400)

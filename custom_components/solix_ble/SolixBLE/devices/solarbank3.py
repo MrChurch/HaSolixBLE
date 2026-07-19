@@ -8,7 +8,13 @@ from bleak.backends.device import BLEDevice
 
 from ..const import DEFAULT_METADATA_FLOAT, DEFAULT_METADATA_STRING
 from ..device import SolixBLEDevice
-from ..sb3_protocol import SB3_SET_SCHEDULE_COMMAND, build_sb3_schedule_plaintext
+from ..sb3_protocol import (
+    SB3_MAX_LOAD_VALUES,
+    SB3_SET_MAX_LOAD_COMMAND,
+    SB3_SET_SCHEDULE_COMMAND,
+    build_sb3_max_load_plaintext,
+    build_sb3_schedule_plaintext,
+)
 
 
 class Solarbank3(SolixBLEDevice):
@@ -38,6 +44,7 @@ class Solarbank3(SolixBLEDevice):
         """Initialize the Solarbank 3 and its staged schedule target."""
         super().__init__(ble_device)
         self._schedule_power_target = 0
+        self._max_load_target = 1200
 
     @property
     def schedule_power_target(self) -> int:
@@ -51,6 +58,21 @@ class Solarbank3(SolixBLEDevice):
         if not 0 <= power_w <= 800:
             raise ValueError("power_w must be between 0 and 800 W")
         self._schedule_power_target = power_w
+
+    @property
+    def max_load_target(self) -> int:
+        """Return the staged maximum-load limit."""
+        return self._max_load_target
+
+    def set_max_load_target(self, max_load_w: int) -> None:
+        """Stage a supported maximum-load limit without writing the device."""
+        if max_load_w not in SB3_MAX_LOAD_VALUES:
+            raise ValueError(
+                "max_load_w must be one of: "
+                + ", ".join(str(value) for value in SB3_MAX_LOAD_VALUES)
+                + " W"
+            )
+        self._max_load_target = max_load_w
 
     async def set_schedule(
         self,
@@ -71,7 +93,12 @@ class Solarbank3(SolixBLEDevice):
             start_minutes=start_minutes,
             end_minutes=end_minutes,
         )
-        await self._send_command(SB3_SET_SCHEDULE_COMMAND, payload)
+        await self._send_sb3_command(SB3_SET_SCHEDULE_COMMAND, payload)
+
+    async def set_max_load(self, max_load_w: int) -> None:
+        """Set the Solarbank 3 maximum output/load limit via ``4080``."""
+        payload = build_sb3_max_load_plaintext(max_load_w)
+        await self._send_sb3_command(SB3_SET_MAX_LOAD_COMMAND, payload)
 
     @property
     def serial_number(self) -> str:

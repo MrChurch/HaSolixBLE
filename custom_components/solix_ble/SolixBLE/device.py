@@ -31,6 +31,8 @@ from .sb3_protocol import (
     SB3Handshake,
     SB3State,
     aes_gcm_decrypt,
+    aes_gcm_encrypt,
+    build_packet,
     build_telemetry_request_packet,
     load_sb3_account_id,
 )
@@ -1192,6 +1194,33 @@ class SolixBLEDevice:
         )
         new_payload = payload + bytes.fromhex("fe0503") + new_timestamp
         await self._send_encrypted_packet(cmd, new_payload)
+
+    async def _send_sb3_command(self, cmd: bytes, payload: bytes) -> None:
+        """Send an authenticated Solarbank 3 command using AES-GCM.
+
+        Solarbank 3 control writes use the negotiated GCM session (the same
+        outer format as 4040), whereas legacy Solix commands use the CBC sender
+        above. Keeping this path explicit prevents a control write from being
+        sent with the wrong cipher or packet length.
+        """
+        handshake = self._sb3_handshake
+        if (
+            not self.negotiated
+            or handshake is None
+            or not handshake.session_ready
+            or handshake.session_key is None
+            or handshake.session_nonce is None
+        ):
+            raise ConnectionError("Solarbank 3 session is not ready")
+
+        timestamp = handshake.next_telemetry_timestamp()
+        plaintext = payload + b"\xfe\x05\x03" + timestamp.to_bytes(4, "little")
+        packet = build_packet(
+            b"\x03\x00\x0f",
+            cmd,
+            aes_gcm_encrypt(handshake.session_key, handshake.session_nonce, plaintext),
+        )
+        await self._write_protocol_packet(packet)
 
     def _build_packet(self, pattern: bytes, cmd: bytes, payload: bytes) -> bytes:
         """

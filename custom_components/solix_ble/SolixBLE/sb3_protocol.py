@@ -38,6 +38,8 @@ SB3_ACCOUNT_ID_HEX_LENGTH = 40
 SB3_4822_SUCCESS_PLAINTEXT = b"\x04"
 SB3_DEFAULT_CLIENT_ID = "79ebed35-dc9c-4904-b40c-72c4e8363a10"
 SB3_SET_SCHEDULE_COMMAND = bytes.fromhex("405e")
+SB3_SET_MAX_LOAD_COMMAND = bytes.fromhex("4080")
+SB3_MAX_LOAD_VALUES = (350, 600, 800, 1200)
 
 # Initial secure-conference material reconstructed from the A17C5 app path.
 # AES-GCM returns ciphertext followed by a 16-byte authentication tag.
@@ -345,6 +347,26 @@ def build_sb3_schedule_plaintext(
     if len(schedule) != 168:
         raise AssertionError(f"unexpected SB3 schedule body length: {len(schedule)}")
     return bytes(schedule)
+
+
+def build_sb3_max_load_plaintext(max_load_w: int) -> bytes:
+    """Build the Solarbank 3 ``4080`` maximum-load payload.
+
+    The Android app exposes four supported limits (350, 600, 800 and 1200 W).
+    The value is encoded as an unsigned little-endian watt value between the
+    ``a20302`` and ``a303020000`` parameter blocks.  The common replay
+    timestamp is appended by the SB3 command sender before encryption.
+    """
+    if not isinstance(max_load_w, int) or isinstance(max_load_w, bool):
+        raise TypeError("max_load_w must be an integer")
+    if max_load_w not in SB3_MAX_LOAD_VALUES:
+        supported = ", ".join(str(value) for value in SB3_MAX_LOAD_VALUES)
+        raise ValueError(f"max_load_w must be one of: {supported} W")
+    return (
+        b"\xa1\x01\x21\xa2\x03\x02"
+        + max_load_w.to_bytes(2, "little")
+        + b"\xa3\x03\x02\x00\x00"
+    )
 
 
 async def load_sb3_account_id(path: Path = SB3_ACCOUNT_ID_PATH) -> str | None:
