@@ -6,6 +6,7 @@
 
 from ..const import DEFAULT_METADATA_FLOAT, DEFAULT_METADATA_STRING
 from ..device import SolixBLEDevice
+from ..sb3_protocol import build_telemetry_request_packet
 
 
 class Solarbank3(SolixBLEDevice):
@@ -30,6 +31,26 @@ class Solarbank3(SolixBLEDevice):
     _UUID_COMMAND: str = "8c850002-0302-41c5-b46e-cf057c562025"
     _UUID_TELEMETRY: str = "8c850003-0302-41c5-b46e-cf057c562025"
     _EXPECTED_TELEMETRY_LENGTH: int = 253
+
+    async def _post_connect(self) -> None:
+        """Re-arm the SB3 status stream after the handshake is established.
+
+        The first 4040 is sent when 4827 is received.  Sending the same
+        timestamp-bound subscribe request once more after ``connect()`` has
+        transitioned to ``negotiated`` matches the post-connect behavior of
+        the other devices and covers firmware that only starts its telemetry
+        producer after the full session setup has returned to the caller.
+        """
+        if self._sb3_handshake is None or not self._sb3_handshake.session_ready:
+            return
+        if self._sb3_handshake.session_key is None or self._sb3_handshake.session_nonce is None:
+            return
+        await self._write_protocol_packet(
+            build_telemetry_request_packet(
+                self._sb3_handshake.session_key,
+                self._sb3_handshake.session_nonce,
+            )
+        )
 
     @property
     def serial_number(self) -> str:
