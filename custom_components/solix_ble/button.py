@@ -43,8 +43,8 @@ class Solarbank3ScheduleApplyButton(ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether the underlying BLE device is available."""
-        return self._device.available
+        """Return whether the authenticated BLE session can accept writes."""
+        return self._device.negotiated
 
     async def async_press(self) -> None:
         """Write the staged target as a uniform seven-day schedule."""
@@ -69,8 +69,8 @@ class Solarbank3MaxLoadApplyButton(ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether the underlying BLE device is available."""
-        return self._device.available
+        """Return whether the authenticated BLE session can accept writes."""
+        return self._device.negotiated
 
     async def async_press(self) -> None:
         """Write the staged maximum-load limit."""
