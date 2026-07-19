@@ -1,78 +1,106 @@
-!!! FORK FOR TESTING
-PLEASE USE ORIGINAL REPO FROM: https://github.com/flip-dots/HaSolixBLE
-!!! FORK FOR TESTING
-PLEASE USE ORIGINAL REPO FROM: https://github.com/flip-dots/HaSolixBLE
-!!! FORK FOR TESTING
-PLEASE USE ORIGINAL REPO FROM: https://github.com/flip-dots/HaSolixBLE
-
-
 # Home Assistant Solix BLE
 
-Home Assistant integration for monitoring and controlling Anker devices using a Bluetooth connection.
+Home Assistant integration for monitoring and controlling Anker Solix devices
+over a local Bluetooth connection.
+
+This repository is the actively tested fork:
+
+<https://github.com/MrChurch/HaSolixBLE>
 
 ## Features
 
-- 🔋 Battery percentage
-- ⚡ Total Power In/Out
-- 🎛️ AC/DC output control
-- 🔌 AC Power In/Out
-- 🚗 DC Power In/Out
-- ⏰ AC/DC Timer value
-- ⏲️ Time remaining to full/empty
-- ☀️ Solar Power In
-- 💻 USB Port Power
-- 📱 USB Port Status & control
-- ⚙️ Firmware version
-- 🩺 Battery health
-- 🌡️ Battery temperature
-- ↔️ Expansion batteries (Charge, Temperature, Health, Firmware)
-- 💡 Light bar status
-- 🖥️ Display status & control
-- ✔️ More emojis than strictly necessary
+- Battery percentage, health and temperature
+- Total power in/out
+- Solar input and PV yield
+- Individual PV input ports
+- AC/DC and USB monitoring for supported devices
+- Firmware and device information
+- Local BLE session authentication and encrypted telemetry
 
+## Solarbank 3 E2700 Pro (A17C5)
+
+Solarbank 3 support has been tested with an A17C5 running firmware 0.3.3.0.
+The integration establishes the authenticated local BLE session using the
+device's ECDH key exchange, negotiated AES-GCM session key and MAC validation.
+No cloud account or firmware modification is required.
+
+### Telemetry
+
+The following Solarbank 3 values are decoded from the encrypted `c405`
+telemetry response:
+
+- **Total Power Out** – live inverter output (`ad`)
+- **Schedule output power** – active schedule target (`b9`)
+- **PV Max** – PV maximum limit (`d5`)
+- Solar Power In (`ab`)
+- PV Yield (`ac`)
+- Solar Power In Port 1–4 (`c7`–`ca`)
+- Battery, grid and household power values
+
+### Local controls
+
+The Solarbank 3 device page provides staged controls and explicit apply
+buttons:
+
+- **Schedule power target**: 0–1200 W in 50 W steps; writes the seven-day
+  `405e` schedule command.
+- **Maximum load limit**: 350, 600, 800 or 1200 W; writes the `4080` command.
+
+The active device value changes immediately over BLE and is visible in the
+telemetry. The plan description/value shown in the Anker app is cloud-backed
+metadata and is not rewritten by the local BLE command; the app may therefore
+continue to display the previous plan value even though the Solarbank is
+operating at the new target.
 
 ## Supported devices
 
-This lists the supported devices, more information on what features are supported can be found in the underlying libraries [documentation](https://solixble.readthedocs.io/en/latest/index.html).
+The integration supports the following devices and variants:
 
-- C300(X)
-- C300(X) DC
+- C300(X) and C300(X) DC
 - C800(X)
-- C1000(X)
-- C1000(X) Gen 2
+- C1000(X) and C1000(X) Gen 2
 - F2000
 - F3800
-- Anker Prime 160w Charger
-- Anker Prime 250w Charger
-- Anker Prime 20k (220w) Power Bank
+- Anker Prime 160 W Charger
+- Anker Prime 250 W Charger
+- Anker Prime 20k (220 W) Power Bank
 - Solarbank 2
-- Potentially more!
+- Solarbank 3 E2700 Pro (A17C5)
 
 ## Installation (HACS)
 
-1. Ensure [HACS](https://custom-components.github.io/hacs/installation/manual/) is installed.
-2. Add `https://github.com/flip-dots/HaSolixBLE` as a [custom repository](https://custom-components.github.io/hacs/usage/settings/#add-custom-repositories)
-3. Install integration.
-4. Restart your instance.
+1. Ensure [HACS](https://www.hacs.xyz/) is installed.
+2. Add `https://github.com/MrChurch/HaSolixBLE` as a custom repository.
+3. Install the integration and restart Home Assistant.
 
 ## Setup
 
-1. Ensure the connection light is blinking. This can be achieved by pressing the IoT button or holding it to reset Bluetooth. The device indicator on the screen should be flashing.
-2. Go to the devices page in Home Assistant and click Add on the power station. It should be automatically detected.
-3. Select the correct model for your power station in the drop down. If your model is not supported select unknown and follow the steps for adding support for a new device below.
-4. Click confirm, the device should be added, this may take a while as a connection is negotiated.
-5. Profit???
+1. Enable Bluetooth pairing on the device (the Bluetooth indicator should
+   blink).
+2. Open the Home Assistant device page and add the detected power station.
+3. Select the matching device model.
+4. Confirm and wait for the authenticated BLE session to complete.
+
+For Bluetooth proxies, make sure the proxy can reach the device reliably and
+that no other client is holding the Solarbank connection during setup.
 
 ## Limitations
 
-- It is not possible to use Bluetooth and Wi-Fi at the same time.
-
+- Bluetooth and Wi-Fi cannot be used simultaneously on some device models.
+- Solarbank 3 plan metadata in the Anker app remains cloud-managed; local BLE
+  changes affect the device and telemetry, not the app's cached plan entry.
+- This project is not affiliated with Anker Innovations Limited.
 
 ## Adding support for new devices
 
-Support for new devices can be added by setting up this integration with an unsupported device and enabling debug logging, this causes the raw telemetry data and differences between values between updates to be printed to the debug log, this can be used to determine what bytes mean what by turning things on and off and finding what value change corresponds with that in the log. You are welcome to submit a PR to the underlying library [SolixBLE](https://github.com/flip-dots/SolixBLE) to add support or to raise a GitHub issue with all of the indexes of the values and what they correspond to and I am happy to add support myself. See the underlying libraries [docs](https://solixble.readthedocs.io/en/latest/new_devices.html), this [PR](https://github.com/flip-dots/SolixBLE/pull/8), and this [discussion](https://github.com/thomluther/anker-solix-api/discussions/222) for more information on how to go about decoding different properties.
-
+Enable debug logging for an unsupported device and compare the raw telemetry
+and parameter differences while changing one device setting at a time. The
+underlying BLE protocol and payload parser can then be extended with a focused
+mapping and regression test.
 
 ## Disclaimer
 
-Home Assistant Solix BLE is a software library designed to work with Anker Solix/Prime devices. ANKER is a registered trademark of Anker Innovations Limited. This project is not affiliated with, endorsed by, or sponsored by Anker Innovations Limited (Though I wouldn't mind being sponsored 😉). All other trademarks cited herein are the property of their respective owners.
+Home Assistant Solix BLE is an unofficial software project for locally owned
+Anker Solix/Prime devices. ANKER is a registered trademark of Anker Innovations
+Limited. No firmware is modified and no cloud or security mechanism is
+bypassed.
