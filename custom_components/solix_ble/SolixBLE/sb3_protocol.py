@@ -211,23 +211,39 @@ def build_account_auth_packet(
 
 
 def validate_sb3_client_id(client_id: str) -> str:
-    """Return a canonical UUID used by the 4027 client-security exchange."""
+    """Validate the 4027 security identifier.
+
+    The official Android capture uses a 40-character hexadecimal identifier
+    (``a228``) for 4027. Keep accepting the earlier UUID form for callers and
+    protocol tests that still use it.
+    """
+    value = str(client_id).strip().lower()
+    if len(value) == 40 and all(char in "0123456789abcdef" for char in value):
+        return value
     try:
-        return str(UUID(client_id))
+        return str(UUID(value))
     except (ValueError, AttributeError) as err:
-        raise ValueError("Solarbank 3 client ID must be a UUID") from err
+        raise ValueError(
+            "Solarbank 3 client ID must be a UUID or 40-character hexadecimal ID"
+        ) from err
 
 
 def build_security_auth_plaintext(
     client_id: str = SB3_DEFAULT_CLIENT_ID, timestamp: int | None = None
 ) -> bytes:
-    """Build the A1 timestamp + A2 client UUID parameters used by 4027."""
+    """Build the A1 timestamp + A2 security identifier used by 4027."""
     client_bytes = validate_sb3_client_id(client_id).encode("ascii")
     if timestamp is None:
         timestamp = int(time.time())
     if not 0 <= timestamp <= 0xFFFFFFFF:
         raise ValueError("timestamp does not fit in four bytes")
-    return b"\xa1\x04" + timestamp.to_bytes(4, "little") + b"\xa2\x24" + client_bytes
+    return (
+        b"\xa1\x04"
+        + timestamp.to_bytes(4, "little")
+        + b"\xa2"
+        + bytes((len(client_bytes),))
+        + client_bytes
+    )
 
 
 def build_security_auth_packet(
@@ -348,7 +364,10 @@ class SB3Handshake:
         self.state = SB3State.IDLE
         self.transcript = SB3Transcript(device_name, address)
         self.account_id = account_id
-        self.client_id = validate_sb3_client_id(client_id)
+        # The official app binds 4027 to the same 40-character account
+        # identifier used by 4022. Fall back to the historical UUID only when
+        # no account ID is available (for compatibility/testing).
+        self.client_id = validate_sb3_client_id(account_id or client_id)
         self.private_key = ec.generate_private_key(ec.SECP256R1())
         self.client_public_key = encode_public_key(self.private_key.public_key())
         self.device_public_key: bytes | None = None
