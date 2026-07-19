@@ -72,12 +72,14 @@ def test_sb3_schedule_matches_captured_405e_layout() -> None:
     """A 405e schedule has seven 22-byte weekday blocks and fd token."""
     first = build_sb3_schedule_plaintext(350, fd_token=b"\x01\x02\x03\x04")
     second = build_sb3_schedule_plaintext(400, fd_token=b"\x01\x02\x03\x04")
+    maximum = build_sb3_schedule_plaintext(1200, fd_token=b"\x01\x02\x03\x04")
 
     assert len(first) == 168
     assert first[:7] == bytes.fromhex("a10121a2020101")
     assert first[161:] == bytes.fromhex("fd050301020304")
     assert [first[18 + 22 * day] for day in range(7)] == [0x5E] * 7
     assert [second[18 + 22 * day] for day in range(7)] == [0x90] * 7
+    assert [maximum[18 + 22 * day] for day in range(7)] == [0xB0] * 7
     assert [a ^ b for a, b in zip(first, second)] == [
         0xCE if index in {18 + 22 * day for day in range(7)} else 0
         for index in range(len(first))

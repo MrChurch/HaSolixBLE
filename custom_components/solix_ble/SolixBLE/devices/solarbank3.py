@@ -55,8 +55,8 @@ class Solarbank3(SolixBLEDevice):
         """Stage a schedule target without writing the device."""
         if not isinstance(power_w, int) or isinstance(power_w, bool):
             raise TypeError("power_w must be an integer")
-        if not 0 <= power_w <= 800 or power_w % 50:
-            raise ValueError("power_w must be between 0 and 800 W in 50 W steps")
+        if not 0 <= power_w <= 1200 or power_w % 50:
+            raise ValueError("power_w must be between 0 and 1200 W in 50 W steps")
         self._schedule_power_target = power_w
 
     @property
@@ -277,7 +277,10 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Total power out or default int value.
         """
-        return self._parse_int("d3", begin=1)
+        # SB3 reports the live inverter output as a typed float in ``ad``.
+        # ``d3`` is present in the packet but remains a status/reserved field
+        # (zero in captures even while the unit is delivering 150--750 W).
+        return round(self._parse_float("ad"))
 
     @property
     def grid_to_home_power(self) -> int:
