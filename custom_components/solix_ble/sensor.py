@@ -923,12 +923,14 @@ async def async_setup_entry(
     # Solar bank sensors #
     ######################
 
-    # Grid to home power
+    # Solarbank 3 telemetry field d5 is the PV maximum limit.  Keep the
+    # compatibility property key ``grid_to_home_power`` internally so an
+    # existing entity remains stable, but expose the correct user-facing name.
     if type(device) in [Solarbank2, Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
-                "Grid to Home power",
+                "PV Max",
                 "W",
                 "grid_to_home_power",
                 SensorDeviceClass.POWER,

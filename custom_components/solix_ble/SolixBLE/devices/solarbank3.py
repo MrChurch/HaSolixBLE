@@ -284,8 +284,9 @@ class Solarbank3(SolixBLEDevice):
 
     @property
     def grid_to_home_power(self) -> int:
-        """Grid to home power.
+        """PV maximum limit reported by telemetry field ``d5``.
 
-        :returns: Power from grid to home or default int value.
+        The field was initially labelled ``Grid to Home`` from the generic
+        Solarbank mapping.  SB3 captures show it is the PV maximum value.
         """
         return self._parse_int("d5", begin=1)
