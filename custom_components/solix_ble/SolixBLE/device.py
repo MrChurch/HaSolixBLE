@@ -26,7 +26,12 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 )
 from cryptography.hazmat.primitives.padding import PKCS7
 
-from .sb3_protocol import SB3Handshake, SB3State, load_sb3_account_id
+from .sb3_protocol import (
+    SB3Handshake,
+    SB3State,
+    aes_gcm_decrypt,
+    load_sb3_account_id,
+)
 
 from .const import (
     BASE_TIMESTAMP,
@@ -910,6 +915,28 @@ class SolixBLEDevice:
 
         self._sb3_raw_packets[cmd_hex] = complete_payload
         self._last_data_timestamp = datetime.now()
+        if self._sb3_handshake is not None and self._sb3_handshake.session_ready:
+            try:
+                plaintext = aes_gcm_decrypt(
+                    self._sb3_handshake.session_key,
+                    self._sb3_handshake.session_nonce,
+                    complete_payload,
+                )
+                parameters = self._parse_payload(plaintext)
+                _LOGGER.debug(
+                    "SB3 telemetry RX cmd=%s plaintext=%s parameters=%s",
+                    cmd_hex,
+                    plaintext.hex(),
+                    self._parameters_to_str(parameters, types=True),
+                )
+                await self._process_telemetry(parameters)
+                return
+            except Exception:
+                _LOGGER.debug(
+                    "SB3 message cmd=%s is not a complete AES-GCM telemetry payload",
+                    cmd_hex,
+                    exc_info=True,
+                )
         _LOGGER.warning(
             "SB3 raw message RX pattern=%s cmd=%s len=%d payload=%s",
             pattern.hex(),
@@ -954,27 +981,33 @@ class SolixBLEDevice:
 
         if next_packet is not None:
             await self._write_protocol_packet(next_packet)
-            return
+            # 4827 transitions the state machine and returns 4040 in the same
+            # call.  Persist that terminal transition after the write instead
+            # of waiting for a further notification that may never arrive.
+            if not self._sb3_handshake.session_ready:
+                return
 
         if self._sb3_handshake.checkpoint_complete:
             transcript_path = await self._sb3_handshake.transcript.export("/config")
             self._sb3_transcript_path = str(transcript_path)
-            self._sb3_checkpoint_complete = True
 
             if self._sb3_handshake.state is SB3State.NEED_ACCOUNT_ID:
+                # This is the only safe-stop boundary: ECDH succeeded, but we
+                # cannot continue without the explicitly configured account ID.
+                # The connect loop will dispose the client on its next pass.
+                self._sb3_checkpoint_complete = True
                 _LOGGER.error(
                     "SB3 dynamic ECDH completed successfully, but no explicit "
                     "account ID is configured. Stopped safely before 4022; "
                     "transcript exported to %s",
                     transcript_path,
                 )
-            elif self._sb3_handshake.state is SB3State.IDENTITY_AUTHENTICATED:
+            elif self._sb3_handshake.session_ready:
                 self._sb3_identity_authenticated = True
+                self._sb3_session_ready = True
                 _LOGGER.warning(
-                    "SB3 identity authentication is fully integrated and accepted "
-                    "(dynamic 4022 -> authenticated 4822/04). The next unimplemented "
-                    "step is dynamic 4027 user-security authentication; disconnecting "
-                    "safely. Transcript: %s",
+                    "SB3 session is ready (authenticated 4022 -> 4822/04 -> 4027 -> "
+                    "4827); encrypted 4040 telemetry request has been sent. Transcript: %s",
                     transcript_path,
                 )
 

@@ -6,9 +6,9 @@ AES-GCM material, sends a dynamic 4022 identity-authentication request and
 strictly validates the authenticated 4822 success response.
 
 The account identifier is loaded from ``/config/solix_sb3_account_id.txt`` and
-must be the 40-character hexadecimal Anker cloud user ID.  The next protocol step
-(4027 user-security authentication) is deliberately not guessed: after a proven
-4822 success response the state machine stops at an explicit safe boundary.
+must be the 40-character hexadecimal Anker cloud user ID.  Once its authenticated
+``4822`` acknowledgement has been received, the session continues with the
+AES-GCM protected 4027/4827 exchange and starts the status stream with 4040.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ import logging
 from pathlib import Path
 import time
 from typing import Any
+from uuid import UUID
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -32,6 +33,8 @@ _LOGGER = logging.getLogger(__name__)
 SB3_ACCOUNT_ID_PATH = Path("/config/solix_sb3_account_id.txt")
 SB3_ACCOUNT_ID_HEX_LENGTH = 40
 SB3_4822_SUCCESS_PLAINTEXT = b"\x04"
+SB3_DEFAULT_CLIENT_ID = "79ebed35-dc9c-4904-b40c-72c4e8363a10"
+SB3_TELEMETRY_REQUEST_PLAINTEXT = bytes.fromhex("a10121")
 
 # Initial secure-conference material reconstructed from the A17C5 app path.
 # AES-GCM returns ciphertext followed by a 16-byte authentication tag.
@@ -65,6 +68,8 @@ class SB3State(str, Enum):
     NEED_ACCOUNT_ID = "need_account_id"
     WAIT_4822 = "wait_4822"
     IDENTITY_AUTHENTICATED = "identity_authenticated"
+    WAIT_4827 = "wait_4827"
+    SESSION_READY = "session_ready"
     FAILED = "failed"
 
 
@@ -204,6 +209,53 @@ def build_account_auth_packet(
     return build_packet(b"\x03\x00\x01", b"\x40\x22", encrypted)
 
 
+def validate_sb3_client_id(client_id: str) -> str:
+    """Return a canonical UUID used by the 4027 client-security exchange."""
+    try:
+        return str(UUID(client_id))
+    except (ValueError, AttributeError) as err:
+        raise ValueError("Solarbank 3 client ID must be a UUID") from err
+
+
+def build_security_auth_plaintext(
+    client_id: str = SB3_DEFAULT_CLIENT_ID, timestamp: int | None = None
+) -> bytes:
+    """Build the A1 timestamp + A2 client UUID parameters used by 4027."""
+    client_bytes = validate_sb3_client_id(client_id).encode("ascii")
+    if timestamp is None:
+        timestamp = int(time.time())
+    if not 0 <= timestamp <= 0xFFFFFFFF:
+        raise ValueError("timestamp does not fit in four bytes")
+    return b"\xa1\x04" + timestamp.to_bytes(4, "little") + b"\xa2\x24" + client_bytes
+
+
+def build_security_auth_packet(
+    session_key: bytes,
+    session_nonce: bytes,
+    client_id: str = SB3_DEFAULT_CLIENT_ID,
+    timestamp: int | None = None,
+) -> bytes:
+    """Build the authenticated, session-bound 4027 request."""
+    return build_packet(
+        b"\x03\x00\x01",
+        b"\x40\x27",
+        aes_gcm_encrypt(
+            session_key,
+            session_nonce,
+            build_security_auth_plaintext(client_id, timestamp),
+        ),
+    )
+
+
+def build_telemetry_request_packet(session_key: bytes, session_nonce: bytes) -> bytes:
+    """Build the encrypted 4040 request which enables an SB3 status update."""
+    return build_packet(
+        b"\x03\x00\x0f",
+        b"\x40\x40",
+        aes_gcm_encrypt(session_key, session_nonce, SB3_TELEMETRY_REQUEST_PLAINTEXT),
+    )
+
+
 async def load_sb3_account_id(path: Path = SB3_ACCOUNT_ID_PATH) -> str | None:
     """Load an explicitly configured account ID without blocking HA's loop."""
     def _read() -> str | None:
@@ -270,10 +322,12 @@ class SB3Handshake:
         device_name: str,
         address: str,
         account_id: str | None = None,
+        client_id: str = SB3_DEFAULT_CLIENT_ID,
     ) -> None:
         self.state = SB3State.IDLE
         self.transcript = SB3Transcript(device_name, address)
         self.account_id = account_id
+        self.client_id = validate_sb3_client_id(client_id)
         self.private_key = ec.generate_private_key(ec.SECP256R1())
         self.client_public_key = encode_public_key(self.private_key.public_key())
         self.device_public_key: bytes | None = None
@@ -321,6 +375,7 @@ class SB3Handshake:
             SB3State.WAIT_4805: "4805",
             SB3State.WAIT_4821: "4821",
             SB3State.WAIT_4822: "4822",
+            SB3State.WAIT_4827: "4827",
         }.get(self.state)
         if expected is None or parsed.command_hex != expected:
             self.state = SB3State.FAILED
@@ -357,7 +412,7 @@ class SB3Handshake:
                 "dynamic account-auth request; account ID intentionally omitted "
                 "from transcript"
             )
-        else:
+        elif self.state is SB3State.WAIT_4822:
             assert self.session_key is not None
             assert self.session_nonce is not None
             plaintext = aes_gcm_decrypt(
@@ -374,7 +429,25 @@ class SB3Handshake:
             _LOGGER.warning(
                 "SB3 identity authentication accepted: authenticated 4822 plaintext=04"
             )
-            return None
+            reply = build_security_auth_packet(
+                self.session_key, self.session_nonce, self.client_id
+            )
+            self.state = SB3State.WAIT_4827
+            note = "dynamic client-security authentication request"
+        else:
+            assert self.session_key is not None
+            assert self.session_nonce is not None
+            plaintext = aes_gcm_decrypt(
+                self.session_key, self.session_nonce, parsed.payload
+            )
+            self.last_decrypted_plaintext = plaintext
+            self.state = SB3State.SESSION_READY
+            _LOGGER.warning(
+                "SB3 client-security authentication accepted: 4827 plaintext=%s",
+                plaintext.hex(),
+            )
+            reply = build_telemetry_request_packet(self.session_key, self.session_nonce)
+            note = "session ready; request first telemetry update"
 
         self.transcript.add("tx", reply, note)
         return reply
@@ -382,11 +455,16 @@ class SB3Handshake:
     @property
     def identity_authenticated(self) -> bool:
         """Return True only after an authenticated 4822 success response."""
-        return self.state is SB3State.IDENTITY_AUTHENTICATED
+        return self.state in {SB3State.IDENTITY_AUTHENTICATED, SB3State.WAIT_4827, SB3State.SESSION_READY}
+
+    @property
+    def session_ready(self) -> bool:
+        """Return True only after an authenticated 4827 response."""
+        return self.state is SB3State.SESSION_READY
 
     @property
     def checkpoint_complete(self) -> bool:
         return self.state in {
             SB3State.NEED_ACCOUNT_ID,
-            SB3State.IDENTITY_AUTHENTICATED,
+            SB3State.SESSION_READY,
         }
