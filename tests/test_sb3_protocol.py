@@ -56,8 +56,6 @@ def test_authenticated_4827_marks_session_ready_and_returns_4040() -> None:
     )
 
 
-def test_4040_status_query_contains_timestamp_tlv() -> None:
-    """The SB3 status request must carry replay protection like the app path."""
-    assert build_telemetry_request_plaintext(1_700_000_000) == bytes.fromhex(
-        "a10121fe0400f15365"
-    )
+def test_4040_status_query_uses_solix_subscription_payload() -> None:
+    """4040 uses the common Solix subscription payload without a timestamp."""
+    assert build_telemetry_request_plaintext(1_700_000_000) == bytes.fromhex("a10121")

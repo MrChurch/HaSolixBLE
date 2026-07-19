@@ -247,20 +247,25 @@ def build_security_auth_packet(
 
 
 def build_telemetry_request_plaintext(timestamp: int | None = None) -> bytes:
-    """Build the timestamp-bound status query used by command 4040."""
-    if timestamp is None:
-        timestamp = int(time.time())
-    if not 0 <= timestamp <= 0xFFFFFFFF:
-        raise ValueError("timestamp does not fit in four bytes")
-    # The SB3 app path uses the same replay-protection TLV as the Prime
-    # 4200 status request: a10121 followed by fe04 and a LE Unix timestamp.
-    return b"\xa1\x01\x21\xfe\x04" + timestamp.to_bytes(4, "little")
+    """Build the status query used by command 4040.
+
+    Solarbank 3 uses the same short subscription payload as the other Solix
+    devices.  In particular, ``4040`` is not part of the timestamp-protected
+    command family used by Prime devices; adding ``fe04`` makes the request
+    authenticate successfully but the station silently ignores it.
+
+    ``timestamp`` remains accepted for source compatibility with callers that
+    used the earlier experimental implementation.  It is intentionally not
+    encoded on the wire.
+    """
+    del timestamp
+    return b"\xa1\x01\x21"
 
 
 def build_telemetry_request_packet(
     session_key: bytes, session_nonce: bytes, timestamp: int | None = None
 ) -> bytes:
-    """Build the encrypted, timestamp-bound 4040 status request."""
+    """Build the encrypted 4040 status request."""
     return build_packet(
         b"\x03\x00\x0f",
         b"\x40\x40",
