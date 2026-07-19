@@ -28,6 +28,8 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from .const import BASE_TIMESTAMP
+
 _LOGGER = logging.getLogger(__name__)
 
 SB3_ACCOUNT_ID_PATH = Path("/config/solix_sb3_account_id.txt")
@@ -247,19 +249,17 @@ def build_security_auth_packet(
 
 
 def build_telemetry_request_plaintext(timestamp: int | None = None) -> bytes:
-    """Build the status query used by command 4040.
+    """Build the replay-protected status query used by command 4040.
 
-    Solarbank 3 uses the same short subscription payload as the other Solix
-    devices.  In particular, ``4040`` is not part of the timestamp-protected
-    command family used by Prime devices; adding ``fe04`` makes the request
-    authenticate successfully but the station silently ignores it.
-
-    ``timestamp`` remains accepted for source compatibility with callers that
-    used the earlier experimental implementation.  It is intentionally not
-    encoded on the wire.
+    The official Android capture contains a ten-byte plaintext.  It uses the
+    common Solix command timestamp TLV (``fe0503``), not the Prime-only
+    ``fe04`` variant and not the short three-byte subscription payload.
     """
-    del timestamp
-    return b"\xa1\x01\x21"
+    if timestamp is None:
+        timestamp = int.from_bytes(bytes.fromhex(BASE_TIMESTAMP), "little")
+    if not 0 <= timestamp <= 0xFFFFFFFF:
+        raise ValueError("timestamp does not fit in four bytes")
+    return b"\xa1\x01\x21\xfe\x05\x03" + timestamp.to_bytes(4, "little")
 
 
 def build_telemetry_request_packet(
@@ -355,6 +355,18 @@ class SB3Handshake:
         self.session_key: bytes | None = None
         self.session_nonce: bytes | None = None
         self.last_decrypted_plaintext: bytes | None = None
+        self._telemetry_timestamp_started = time.monotonic()
+        self._last_telemetry_timestamp: int | None = None
+
+    def next_telemetry_timestamp(self) -> int:
+        """Return the next replay-protection timestamp for an SB3 command."""
+        base_timestamp = int.from_bytes(bytes.fromhex(BASE_TIMESTAMP), "little")
+        elapsed = int(time.monotonic() - self._telemetry_timestamp_started)
+        timestamp = base_timestamp + elapsed
+        if self._last_telemetry_timestamp is not None:
+            timestamp = max(timestamp, self._last_telemetry_timestamp + 1)
+        self._last_telemetry_timestamp = timestamp
+        return timestamp
 
     def start(self) -> bytes:
         if self.state is not SB3State.IDLE:
@@ -467,7 +479,11 @@ class SB3Handshake:
                 "SB3 client-security authentication accepted: 4827 plaintext=%s",
                 plaintext.hex(),
             )
-            reply = build_telemetry_request_packet(self.session_key, self.session_nonce)
+            reply = build_telemetry_request_packet(
+                self.session_key,
+                self.session_nonce,
+                self.next_telemetry_timestamp(),
+            )
             note = "session ready; request first telemetry update"
 
         self.transcript.add("tx", reply, note)

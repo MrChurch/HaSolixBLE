@@ -427,6 +427,7 @@ class SolixBLEDevice:
             build_telemetry_request_packet(
                 handshake.session_key,
                 handshake.session_nonce,
+                handshake.next_telemetry_timestamp(),
             )
         )
 

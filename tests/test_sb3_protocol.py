@@ -10,7 +10,6 @@ from custom_components.solix_ble.SolixBLE.sb3_protocol import (
     build_security_auth_packet,
     build_security_auth_plaintext,
     build_telemetry_request_plaintext,
-    build_telemetry_request_packet,
     parse_packet,
 )
 
@@ -51,11 +50,17 @@ def test_authenticated_4827_marks_session_ready_and_returns_4040() -> None:
 
     assert handshake.session_ready
     assert parse_packet(next_packet).command == bytes.fromhex("4040")
-    assert next_packet == build_telemetry_request_packet(
-        handshake.session_key, handshake.session_nonce
+    assert aes_gcm_decrypt(
+        handshake.session_key,
+        handshake.session_nonce,
+        parse_packet(next_packet).payload,
+    ).startswith(
+        bytes.fromhex("a10121fe0503")
     )
 
 
-def test_4040_status_query_uses_solix_subscription_payload() -> None:
-    """4040 uses the common Solix subscription payload without a timestamp."""
-    assert build_telemetry_request_plaintext(1_700_000_000) == bytes.fromhex("a10121")
+def test_4040_status_query_uses_solix_timestamp_tlv() -> None:
+    """4040 uses the captured Solix replay-protection timestamp TLV."""
+    assert build_telemetry_request_plaintext(1_700_000_000) == bytes.fromhex(
+        "a10121fe050300f15365"
+    )
