@@ -822,7 +822,7 @@ class SolixBLEDevice:
                 return await self._process_negotiation(pattern, cmd, payload)
 
             # Session messages
-            case "03010f" | "030111":
+            case "03000f" | "03010f" | "030111":
 
                 if self._is_solarbank3_transport:
                     # The new A17C5 payload is not compatible with the old

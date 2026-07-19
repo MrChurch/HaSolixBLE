@@ -34,7 +34,6 @@ SB3_ACCOUNT_ID_PATH = Path("/config/solix_sb3_account_id.txt")
 SB3_ACCOUNT_ID_HEX_LENGTH = 40
 SB3_4822_SUCCESS_PLAINTEXT = b"\x04"
 SB3_DEFAULT_CLIENT_ID = "79ebed35-dc9c-4904-b40c-72c4e8363a10"
-SB3_TELEMETRY_REQUEST_PLAINTEXT = bytes.fromhex("a10121")
 
 # Initial secure-conference material reconstructed from the A17C5 app path.
 # AES-GCM returns ciphertext followed by a 16-byte authentication tag.
@@ -247,12 +246,29 @@ def build_security_auth_packet(
     )
 
 
-def build_telemetry_request_packet(session_key: bytes, session_nonce: bytes) -> bytes:
-    """Build the encrypted 4040 request which enables an SB3 status update."""
+def build_telemetry_request_plaintext(timestamp: int | None = None) -> bytes:
+    """Build the timestamp-bound status query used by command 4040."""
+    if timestamp is None:
+        timestamp = int(time.time())
+    if not 0 <= timestamp <= 0xFFFFFFFF:
+        raise ValueError("timestamp does not fit in four bytes")
+    # The SB3 app path uses the same replay-protection TLV as the Prime
+    # 4200 status request: a10121 followed by fe04 and a LE Unix timestamp.
+    return b"\xa1\x01\x21\xfe\x04" + timestamp.to_bytes(4, "little")
+
+
+def build_telemetry_request_packet(
+    session_key: bytes, session_nonce: bytes, timestamp: int | None = None
+) -> bytes:
+    """Build the encrypted, timestamp-bound 4040 status request."""
     return build_packet(
         b"\x03\x00\x0f",
         b"\x40\x40",
-        aes_gcm_encrypt(session_key, session_nonce, SB3_TELEMETRY_REQUEST_PLAINTEXT),
+        aes_gcm_encrypt(
+            session_key,
+            session_nonce,
+            build_telemetry_request_plaintext(timestamp),
+        ),
     )
 
 
