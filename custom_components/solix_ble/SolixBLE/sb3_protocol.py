@@ -318,8 +318,8 @@ def build_sb3_schedule_plaintext(
     """
     if not isinstance(power_w, int) or isinstance(power_w, bool):
         raise TypeError("power_w must be an integer")
-    if not 0 <= power_w <= 800:
-        raise ValueError("power_w must be between 0 and 800 W")
+    if not 0 <= power_w <= 800 or power_w % 50:
+        raise ValueError("power_w must be between 0 and 800 W in 50 W steps")
     if not 0 <= start_minutes <= 1440:
         raise ValueError("start_minutes must be between 0 and 1440")
     if not 0 <= end_minutes <= 1440 or end_minutes < start_minutes:

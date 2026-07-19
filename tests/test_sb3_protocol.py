@@ -106,3 +106,11 @@ def test_sb3_max_load_rejects_values_not_exposed_by_the_app() -> None:
 
     with pytest.raises(ValueError):
         build_sb3_max_load_plaintext(400)
+
+
+def test_sb3_schedule_rejects_non_50_watt_targets() -> None:
+    """Schedule targets are exposed by the app in 50 W increments."""
+    import pytest
+
+    with pytest.raises(ValueError):
+        build_sb3_schedule_plaintext(125, fd_token=b"\x00\x00\x00\x00")

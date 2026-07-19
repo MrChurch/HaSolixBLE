@@ -32,7 +32,7 @@ class Solarbank3ScheduleNumber(RestoreEntity, NumberEntity):
     _attr_icon = "mdi:solar-power"
     _attr_native_min_value = 0
     _attr_native_max_value = 800
-    _attr_native_step = 10
+    _attr_native_step = 50
     _attr_native_unit_of_measurement = "W"
     _attr_mode = "slider"
 
@@ -61,12 +61,13 @@ class Solarbank3ScheduleNumber(RestoreEntity, NumberEntity):
             except ValueError:
                 value = self._device.schedule_power_target
             if 0 <= value <= 800:
+                value = int(round(value / 50) * 50)
                 self._device.set_schedule_power_target(value)
                 self._attr_native_value = value
 
     async def async_set_native_value(self, value: float) -> None:
         """Stage a new output target; the apply button performs the write."""
-        target = int(round(value / 10) * 10)
+        target = int(round(value / 50) * 50)
         self._device.set_schedule_power_target(target)
         self._attr_native_value = target
         self.async_write_ha_state()

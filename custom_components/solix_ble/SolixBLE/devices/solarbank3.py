@@ -55,8 +55,8 @@ class Solarbank3(SolixBLEDevice):
         """Stage a schedule target without writing the device."""
         if not isinstance(power_w, int) or isinstance(power_w, bool):
             raise TypeError("power_w must be an integer")
-        if not 0 <= power_w <= 800:
-            raise ValueError("power_w must be between 0 and 800 W")
+        if not 0 <= power_w <= 800 or power_w % 50:
+            raise ValueError("power_w must be between 0 and 800 W in 50 W steps")
         self._schedule_power_target = power_w
 
     @property
@@ -147,12 +147,14 @@ class Solarbank3(SolixBLEDevice):
         return self._parse_float("ab")
 
     @property
-    def pv_yield(self) -> int:
+    def pv_yield(self) -> float:
         """Solar power generated.
 
         :returns: Total solar power generated or default int value.
         """
-        return self._parse_float("ac")
+        # Firmware occasionally reports a signed negative counter after a
+        # schedule reset. Energy cannot be negative, so expose a safe value.
+        return max(0.0, self._parse_float("ac"))
 
     @property
     def house_demand(self) -> int:
