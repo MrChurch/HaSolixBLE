@@ -48,7 +48,7 @@ class Solarbank3(SolixBLEDevice):
         if self._data is None:
             return DEFAULT_METADATA_FLOAT
 
-        return self._parse_int("a5", begin=1) / 10.0
+        return float(self._parse_int("a5", begin=1))
 
     @property
     def battery_health(self) -> float:
@@ -59,7 +59,7 @@ class Solarbank3(SolixBLEDevice):
         if self._data is None:
             return DEFAULT_METADATA_FLOAT
 
-        return self._parse_int("a6", begin=1) / 10.0
+        return float(self._parse_int("a6", begin=1))
 
     @property
     def battery_percentage(self) -> int:
@@ -67,7 +67,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Percentage charge of battery or default int value.
         """
-        return self._parse_int("a7", begin=1)
+        return self._parse_int("a3", begin=1)
 
     @property
     def solar_power_in(self) -> int:
@@ -75,7 +75,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Total solar power in or default int value.
         """
-        return self._parse_int("ab", begin=1)
+        return self._parse_float("ab")
 
     @property
     def pv_yield(self) -> int:
@@ -83,7 +83,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Total solar power generated or default int value.
         """
-        return self._parse_int("ac", begin=1)
+        return self._parse_float("ac")
 
     @property
     def house_demand(self) -> int:
@@ -91,7 +91,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Power used by house or default int value.
         """
-        return self._parse_int("b1", begin=1)
+        return self._parse_float("b1")
 
     @property
     def house_consumption(self) -> int:
@@ -101,7 +101,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Power used by house or default int value.
         """
-        return self._parse_int("b2", begin=1)
+        return self._parse_float("b2")
 
     @property
     def battery_power(self) -> int:
@@ -137,7 +137,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Power in/out of grid or default int value.
         """
-        return self._parse_int("bd", begin=1, signed=True)
+        return int(self._parse_float("bd"))
 
     @property
     def grid_import_energy(self) -> int:
@@ -153,7 +153,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Total energy exported to grid or default int value.
         """
-        return self._parse_int("bf", begin=1)
+        return int(self._parse_float("bf"))
 
     @property
     def solar_pv_1_power_in(self) -> int:
@@ -161,7 +161,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        return self._parse_int("c7", begin=1)
+        return self._parse_float("c7")
 
     @property
     def solar_pv_2_power_in(self) -> int:
@@ -169,7 +169,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        return self._parse_int("c8", begin=1)
+        return self._parse_float("c8")
 
     @property
     def solar_pv_3_power_in(self) -> int:
@@ -177,7 +177,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        return self._parse_int("c9", begin=1)
+        return self._parse_float("c9")
 
     @property
     def solar_pv_4_power_in(self) -> int:
@@ -185,7 +185,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        return self._parse_int("ca", begin=1)
+        return self._parse_float("ca")
 
     @property
     def temperature(self) -> int:

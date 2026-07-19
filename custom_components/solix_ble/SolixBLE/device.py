@@ -8,6 +8,7 @@ import asyncio
 import inspect
 import json
 import logging
+import struct
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -36,6 +37,7 @@ from .sb3_protocol import (
 
 from .const import (
     BASE_TIMESTAMP,
+    DEFAULT_METADATA_FLOAT,
     DEFAULT_METADATA_INT,
     DEFAULT_METADATA_STRING,
     DISCONNECT_TIMEOUT,
@@ -521,10 +523,19 @@ class SolixBLEDevice:
         :raises KeyError: If key does not exist.
         :raises IndexError: If slices invalid.
         """
-        if self._data is None:
+        if self._data is None or key not in self._data:
             return DEFAULT_METADATA_INT
         int_bytes = self._data[key][begin:end]
         return int.from_bytes(int_bytes, byteorder="little", signed=signed)
+
+    def _parse_float(self, key: str, begin: int = 1) -> float:
+        """Parse a typed SB3 float32 value, with integer fallback."""
+        if self._data is None or key not in self._data:
+            return DEFAULT_METADATA_FLOAT
+        value = self._data[key]
+        if value and value[0] == 0x05 and len(value) >= begin + 4:
+            return struct.unpack("<f", value[begin : begin + 4])[0]
+        return float(self._parse_int(key, begin=begin))
 
     def _parse_string(self, key: str, begin: int = None, end: int = None) -> str:
         """Parse ASCII text at the specified key in the telemetry data.
@@ -777,6 +788,9 @@ class SolixBLEDevice:
     async def _process_telemetry(self, parameters: dict[str, bytes]) -> None:
         """Process telemetry data from the device."""
 
+        if self._is_solarbank3_transport and self._data is not None:
+            parameters = {**self._data, **parameters}
+
         state_changed = self._data is None or parameters != self._data
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -942,6 +956,12 @@ class SolixBLEDevice:
 
         self._sb3_raw_packets[cmd_hex] = complete_payload
         self._last_data_timestamp = datetime.now()
+        # 4409 is an auxiliary device/battery metadata response. It has a
+        # different, nested schema and must not replace the power telemetry
+        # dictionary consumed by the Solarbank 3 sensors.
+        if cmd_hex == "4409":
+            _LOGGER.debug("SB3 metadata RX cmd=4409 stored without sensor update")
+            return
         if self._sb3_handshake is not None and self._sb3_handshake.session_ready:
             try:
                 plaintext = aes_gcm_decrypt(
