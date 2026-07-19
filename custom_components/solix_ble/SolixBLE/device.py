@@ -30,6 +30,7 @@ from .sb3_protocol import (
     SB3Handshake,
     SB3State,
     aes_gcm_decrypt,
+    build_telemetry_request_packet,
     load_sb3_account_id,
 )
 
@@ -398,11 +399,36 @@ class SolixBLEDevice:
         for example, send a subscribe command to start a telemetry stream (see
         :class:`~SolixBLE.devices.c1000g2.C1000G2`).
         """
-        if self._is_solarbank3_transport:
-            _LOGGER.debug(
-                "Solarbank 3 post-connect skipped in forensic build; "
-                "session-bound commands are not replayed"
+        if not self._is_solarbank3_transport:
+            return
+
+        # A17C5 starts publishing telemetry only after the encrypted session
+        # has been established.  Some firmware revisions ignore the 4040 sent
+        # inline while processing 4827, so replay the same request here after
+        # ``connect()`` has transitioned to the negotiated state.  Keep this
+        # in the base class because a Solarbank 3 may have been created from an
+        # older/unknown config entry and still uses the SB3 transport path.
+        handshake = self._sb3_handshake
+        if handshake is None or not handshake.session_ready:
+            _LOGGER.warning(
+                "Solarbank 3 post-connect cannot re-arm telemetry: "
+                "session is not ready"
             )
+            return
+        if handshake.session_key is None or handshake.session_nonce is None:
+            _LOGGER.warning(
+                "Solarbank 3 post-connect cannot re-arm telemetry: "
+                "session material is missing"
+            )
+            return
+
+        _LOGGER.warning("Solarbank 3 post-connect: re-arming 4040 telemetry")
+        await self._write_protocol_packet(
+            build_telemetry_request_packet(
+                handshake.session_key,
+                handshake.session_nonce,
+            )
+        )
 
     async def disconnect(self) -> None:
         """Disconnect from device and reset internal state.
