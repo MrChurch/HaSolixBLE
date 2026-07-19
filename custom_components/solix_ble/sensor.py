@@ -935,6 +935,18 @@ async def async_setup_entry(
             )
         )
 
+    # Current Solarbank 3 scheduled output power (device telemetry b9)
+    if type(device) in [Solarbank3]:
+        sensors.append(
+            SolixSensorEntity(
+                device,
+                "Schedule output power",
+                "W",
+                "schedule_power",
+                SensorDeviceClass.POWER,
+            )
+        )
+
     # PV to grid power
     if type(device) in [Solarbank2]:
         sensors.append(

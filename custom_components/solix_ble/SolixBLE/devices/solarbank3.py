@@ -183,6 +183,11 @@ class Solarbank3(SolixBLEDevice):
         return self._parse_int("b6", begin=1, signed=True)
 
     @property
+    def schedule_power(self) -> int:
+        """Current scheduled output power reported by telemetry (``b9``)."""
+        return self._parse_int("b9", begin=1)
+
+    @property
     def charged_energy(self) -> int:
         """Energy into battery?
 
