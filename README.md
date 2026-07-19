@@ -7,6 +7,10 @@ This repository is the actively tested fork:
 
 <https://github.com/MrChurch/HaSolixBLE>
 
+!!! ORIGINAL CODE: https://github.com/flip-dots/HaSolixBLE !!!
+!!! ORIGINAL CODE: https://github.com/flip-dots/HaSolixBLE !!!
+!!! ORIGINAL CODE: https://github.com/flip-dots/HaSolixBLE !!!
+
 ## Features
 
 - Battery percentage, health and temperature
