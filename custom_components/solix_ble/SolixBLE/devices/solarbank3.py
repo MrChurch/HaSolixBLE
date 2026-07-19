@@ -117,7 +117,10 @@ class Solarbank3(SolixBLEDevice):
         if self._data is None:
             return DEFAULT_METADATA_FLOAT
 
-        return float(self._parse_int("a5", begin=1))
+        # Solarbank 3 uses ``a3`` for the battery state of charge.  The
+        # similarly shaped ``a5`` field is the unit temperature, not an
+        # aggregate battery percentage.
+        return float(self._parse_int("a3", begin=1))
 
     @property
     def battery_health(self) -> float:
@@ -269,7 +272,9 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Temperature of the unit in degrees C.
         """
-        return self._parse_int("cc", begin=1, signed=True)
+        # ``a5`` is reported as a two-byte integer in degrees Celsius.  The
+        # ``cc`` field is a separate status value and is not the temperature.
+        return self._parse_int("a5", begin=1, signed=True)
 
     @property
     def power_out(self) -> int:
