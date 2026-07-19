@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import secrets
 import time
 from typing import Any
 from uuid import UUID
@@ -36,6 +37,7 @@ SB3_ACCOUNT_ID_PATH = Path("/config/solix_sb3_account_id.txt")
 SB3_ACCOUNT_ID_HEX_LENGTH = 40
 SB3_4822_SUCCESS_PLAINTEXT = b"\x04"
 SB3_DEFAULT_CLIENT_ID = "79ebed35-dc9c-4904-b40c-72c4e8363a10"
+SB3_SET_SCHEDULE_COMMAND = bytes.fromhex("405e")
 
 # Initial secure-conference material reconstructed from the A17C5 app path.
 # AES-GCM returns ciphertext followed by a 16-byte authentication tag.
@@ -291,6 +293,58 @@ def build_telemetry_request_packet(
             build_telemetry_request_plaintext(timestamp),
         ),
     )
+
+
+def build_sb3_schedule_plaintext(
+    power_w: int,
+    *,
+    start_minutes: int = 0,
+    end_minutes: int = 1440,
+    fd_token: bytes | None = None,
+) -> bytes:
+    """Build the Solarbank 3 ``405e`` schedule payload.
+
+    The official app writes one schedule block for every weekday.  The
+    captured A17C5 packet has seven 22-byte blocks, followed by a fresh
+    ``fd0503`` token.  The common ``fe0503`` replay timestamp is appended by
+    :meth:`SolixBLEDevice._send_command` immediately before encryption.
+
+    Each block contains a 00:00--24:00 interval, the requested output power
+    and the captured ``0x0050`` trailer.
+    Keeping the token injectable makes the binary layout testable while the
+    default generates the same fresh four-byte value as the Android app.
+    """
+    if not isinstance(power_w, int) or isinstance(power_w, bool):
+        raise TypeError("power_w must be an integer")
+    if not 0 <= power_w <= 800:
+        raise ValueError("power_w must be between 0 and 800 W")
+    if not 0 <= start_minutes <= 1440:
+        raise ValueError("start_minutes must be between 0 and 1440")
+    if not 0 <= end_minutes <= 1440 or end_minutes < start_minutes:
+        raise ValueError("end_minutes must be between start_minutes and 1440")
+    if fd_token is None:
+        fd_token = secrets.token_bytes(4)
+    if len(fd_token) != 4:
+        raise ValueError("fd_token must contain exactly four bytes")
+
+    schedule = bytearray(b"\xa1\x01\x21\xa2\x02\x01\x01")
+    slot = (
+        start_minutes.to_bytes(2, "little")
+        + end_minutes.to_bytes(2, "little")
+        + power_w.to_bytes(2, "little")
+        + b"\x50\x00"
+    )
+    for day in range(7):
+        base = 0xA3 + 4 * day
+        schedule.extend(bytes((base,)) + b"\x02\x01\x01")
+        schedule.extend(bytes((base + 1,)) + b"\x09\x04" + slot)
+        schedule.extend(bytes((base + 2,)) + b"\x02\x01\x00")
+        schedule.extend(bytes((base + 3,)) + b"\x01\x04")
+
+    schedule.extend(b"\xfd\x05\x03" + fd_token)
+    if len(schedule) != 168:
+        raise AssertionError(f"unexpected SB3 schedule body length: {len(schedule)}")
+    return bytes(schedule)
 
 
 async def load_sb3_account_id(path: Path = SB3_ACCOUNT_ID_PATH) -> str | None:

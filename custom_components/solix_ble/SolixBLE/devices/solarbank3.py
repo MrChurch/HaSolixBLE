@@ -4,8 +4,11 @@
 
 """
 
+from bleak.backends.device import BLEDevice
+
 from ..const import DEFAULT_METADATA_FLOAT, DEFAULT_METADATA_STRING
 from ..device import SolixBLEDevice
+from ..sb3_protocol import SB3_SET_SCHEDULE_COMMAND, build_sb3_schedule_plaintext
 
 
 class Solarbank3(SolixBLEDevice):
@@ -30,6 +33,45 @@ class Solarbank3(SolixBLEDevice):
     _UUID_COMMAND: str = "8c850002-0302-41c5-b46e-cf057c562025"
     _UUID_TELEMETRY: str = "8c850003-0302-41c5-b46e-cf057c562025"
     _EXPECTED_TELEMETRY_LENGTH: int = 253
+
+    def __init__(self, ble_device: BLEDevice) -> None:
+        """Initialize the Solarbank 3 and its staged schedule target."""
+        super().__init__(ble_device)
+        self._schedule_power_target = 0
+
+    @property
+    def schedule_power_target(self) -> int:
+        """Return the staged output target used by the apply button."""
+        return self._schedule_power_target
+
+    def set_schedule_power_target(self, power_w: int) -> None:
+        """Stage a schedule target without writing the device."""
+        if not isinstance(power_w, int) or isinstance(power_w, bool):
+            raise TypeError("power_w must be an integer")
+        if not 0 <= power_w <= 800:
+            raise ValueError("power_w must be between 0 and 800 W")
+        self._schedule_power_target = power_w
+
+    async def set_schedule(
+        self,
+        power_w: int,
+        *,
+        start_minutes: int = 0,
+        end_minutes: int = 1440,
+    ) -> None:
+        """Set a uniform seven-day output schedule on the Solarbank 3.
+
+        This is the local BLE equivalent of the app's ``405e`` write.  The
+        command is sent only after the authenticated SB3 session is ready;
+        :meth:`SolixBLEDevice._send_command` adds the current replay timestamp
+        and applies the negotiated AES-GCM session encryption.
+        """
+        payload = build_sb3_schedule_plaintext(
+            power_w,
+            start_minutes=start_minutes,
+            end_minutes=end_minutes,
+        )
+        await self._send_command(SB3_SET_SCHEDULE_COMMAND, payload)
 
     @property
     def serial_number(self) -> str:
