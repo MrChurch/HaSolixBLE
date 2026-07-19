@@ -61,6 +61,33 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _is_complete_sb3_tlv_payload(payload: bytes) -> bool:
+    """Return whether payload is a complete sequence of SB3 TLV parameters."""
+    if not payload:
+        return False
+
+    index = 1 if payload[0] == 0 else 0
+    if index == len(payload):
+        return False
+
+    while index < len(payload):
+        if len(payload) - index < 2:
+            return False
+
+        parameter_length = payload[index + 1]
+        index += 2
+        if len(payload) - index < parameter_length:
+            return False
+        index += parameter_length
+
+    return True
+
+
+def _is_sb3_command_acknowledgement(payload: bytes) -> bool:
+    """Return whether payload matches the observed short SB3 command ACK."""
+    return len(payload) == 4 and payload[:3] == b"\x01\xa1\x01"
+
+
 class SolixBLEDevice:
     """Solix BLE device object."""
     _UUID_COMMAND: str = UUID_COMMAND
@@ -140,7 +167,7 @@ class SolixBLEDevice:
                 f"Cannot write protocol packet to '{self.name}': "
                 "device disconnected or command characteristic unavailable"
             )
-        _LOGGER.warning(
+        _LOGGER.debug(
             "TX %s packet: %s",
             "SB3 dynamic" if self._is_solarbank3_transport else "Solix",
             packet.hex(),
@@ -941,7 +968,7 @@ class SolixBLEDevice:
                 if fragment_index == 1:
                     fragments.clear()
                 fragments[fragment_index] = bytes(payload[1:])
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "SB3 raw fragment RX pattern=%s cmd=%s fragment=%d/%d len=%d",
                     pattern.hex(),
                     cmd_hex,
@@ -971,6 +998,20 @@ class SolixBLEDevice:
                     self._sb3_handshake.session_nonce,
                     complete_payload,
                 )
+                if _is_sb3_command_acknowledgement(plaintext):
+                    _LOGGER.debug(
+                        "SB3 command acknowledgement RX cmd=%s status=%s",
+                        cmd_hex,
+                        plaintext[-1:].hex(),
+                    )
+                    return
+                if not _is_complete_sb3_tlv_payload(plaintext):
+                    _LOGGER.debug(
+                        "SB3 authenticated non-telemetry RX cmd=%s plaintext=%s",
+                        cmd_hex,
+                        plaintext.hex(),
+                    )
+                    return
                 parameters = self._parse_payload(plaintext)
                 _LOGGER.debug(
                     "SB3 telemetry RX cmd=%s plaintext=%s parameters=%s",
@@ -986,7 +1027,7 @@ class SolixBLEDevice:
                     cmd_hex,
                     exc_info=True,
                 )
-        _LOGGER.warning(
+        _LOGGER.debug(
             "SB3 raw message RX pattern=%s cmd=%s len=%d payload=%s",
             pattern.hex(),
             cmd_hex,
