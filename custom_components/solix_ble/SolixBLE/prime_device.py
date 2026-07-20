@@ -15,8 +15,8 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
     derive_private_key,
 )
 
-from SolixBLE.const import UUID_COMMAND
-from SolixBLE.device import SolixBLEDevice
+from .const import UUID_COMMAND
+from .device import SolixBLEDevice
 
 _LOGGER = logging.getLogger(__name__)
 
