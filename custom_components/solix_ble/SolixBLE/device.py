@@ -125,6 +125,10 @@ class SolixBLEDevice:
         self._telemetry_characteristic = None
         self._sb3_session_ready: bool = False
         self._sb3_raw_packets: dict[str, bytes] = {}
+        # 4409 is the Solarbank 3 battery topology/detail response.  It has
+        # a different schema from c405/c840 telemetry and must not be merged
+        # into the normal device parameter dictionary.
+        self._sb3_battery_metadata: bytes | None = None
         self._sb3_raw_fragments: dict[str, dict[int, bytes]] = {}
         self._sb3_handshake: SB3Handshake | None = None
         self._sb3_checkpoint_complete: bool = False
@@ -514,6 +518,13 @@ class SolixBLEDevice:
         :returns: True/False if the device is connected and sending telemetry.
         """
         return self.negotiated and self._data is not None
+
+    @property
+    def sb3_battery_metadata(self) -> bytes | None:
+        """Return the latest decrypted SB3 4409 battery metadata blob."""
+        if not self._is_solarbank3_transport or self._sb3_battery_metadata is None:
+            return None
+        return bytes(self._sb3_battery_metadata)
 
     @property
     def address(self) -> str:
@@ -985,12 +996,6 @@ class SolixBLEDevice:
 
         self._sb3_raw_packets[cmd_hex] = complete_payload
         self._last_data_timestamp = datetime.now()
-        # 4409 is an auxiliary device/battery metadata response. It has a
-        # different, nested schema and must not replace the power telemetry
-        # dictionary consumed by the Solarbank 3 sensors.
-        if cmd_hex == "4409":
-            _LOGGER.debug("SB3 metadata RX cmd=4409 stored without sensor update")
-            return
         if self._sb3_handshake is not None and self._sb3_handshake.session_ready:
             try:
                 plaintext = aes_gcm_decrypt(
@@ -1004,6 +1009,19 @@ class SolixBLEDevice:
                         cmd_hex,
                         plaintext[-1:].hex(),
                     )
+                    return
+                if cmd_hex == "4409":
+                    # Keep the decrypted blob separate.  The nested battery
+                    # schema is intentionally not fed to _parse_payload:
+                    # doing so would make the normal telemetry fields look
+                    # as if they had disappeared.  Solarbank3 exposes this
+                    # data to its model-specific decoder.
+                    self._sb3_battery_metadata = bytes(plaintext)
+                    self._last_data_timestamp = datetime.now()
+                    _LOGGER.debug(
+                        "SB3 battery metadata RX plaintext=%s", plaintext.hex()
+                    )
+                    self._run_state_changed_callbacks()
                     return
                 if not _is_complete_sb3_tlv_payload(plaintext):
                     _LOGGER.debug(
@@ -1510,6 +1528,7 @@ class SolixBLEDevice:
         self._sb3_session_ready = False
         self._sb3_identity_authenticated = False
         self._sb3_raw_packets = {}
+        self._sb3_battery_metadata = None
         self._sb3_raw_fragments = {}
         self._sb3_handshake = None
         self._sb3_checkpoint_complete = False
