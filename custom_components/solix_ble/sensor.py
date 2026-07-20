@@ -937,6 +937,37 @@ async def async_setup_entry(
             )
         )
 
+    # Solarbank 3 expansion batteries.  The metadata response is dynamic,
+    # but entities are registered up front so Home Assistant does not need a
+    # reload when a battery is inserted or removed.
+    if type(device) is Solarbank3:
+        for slot in (1, 2):
+            sensors.extend(
+                [
+                    SolixSensorEntity(
+                        device,
+                        f"Expansion Battery {slot} Percentage",
+                        "%",
+                        f"expansion_battery_{slot}_percentage",
+                        SensorDeviceClass.BATTERY,
+                    ),
+                    SolixSensorEntity(
+                        device,
+                        f"Expansion Battery {slot} Temperature",
+                        UnitOfTemperature.CELSIUS,
+                        f"expansion_battery_{slot}_temperature",
+                        SensorDeviceClass.TEMPERATURE,
+                    ),
+                    SolixSensorEntity(
+                        device,
+                        f"Expansion Battery {slot} Serial Number",
+                        None,
+                        f"expansion_battery_{slot}_serial_number",
+                        state_class=None,
+                    ),
+                ]
+            )
+
     # Current Solarbank 3 scheduled output power (device telemetry b9)
     if type(device) in [Solarbank3]:
         sensors.append(
