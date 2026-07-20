@@ -281,10 +281,10 @@ class Solarbank3(SolixBLEDevice):
     def _expansion_battery(self, slot: int) -> tuple[str | None, int | None, int | None]:
         """Decode one expansion-battery record from the decrypted 4409 blob.
 
-        The record marker is ``63 01 <slot> <temperature> 02 <soc> <health>``;
+        The record marker is ``63 01 <slot> <temperature> <format> <soc> <health>``;
         the 16 ASCII bytes immediately before it are the battery serial.
-        A zero in the marker position means that the known battery is not
-        currently inserted and must remain unavailable.
+        BP1600 uses format byte ``00`` while BP2700 uses ``02``; both are
+        valid inserted-battery records.
         """
         payload = self.sb3_battery_metadata
         if payload is None:
@@ -293,7 +293,7 @@ class Solarbank3(SolixBLEDevice):
         marker = bytes((0x63, 0x01, slot))
         start = 0
         while (index := payload.find(marker, start)) >= 16:
-            if index + 7 > len(payload) or payload[index + 4] != 0x02:
+            if index + 7 > len(payload):
                 start = index + 1
                 continue
             serial_bytes = payload[index - 16:index]
@@ -305,7 +305,7 @@ class Solarbank3(SolixBLEDevice):
             # Some expansion records repeat the complete serial after the
             # compact 16-byte display field. Prefer that longer ASCII run.
             trailing_runs = re.findall(rb"[A-Z0-9]{16,}", payload[index + 7 :])
-            if trailing_runs:
+            if slot == 3 and trailing_runs:
                 serial = max((run.decode("ascii") for run in trailing_runs), key=len)
             temperature = payload[index + 3]
             percentage = payload[index + 5]
