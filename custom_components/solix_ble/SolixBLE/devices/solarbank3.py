@@ -38,6 +38,7 @@ class Solarbank3(SolixBLEDevice):
         to help with testing feel free to raise a GitHub issue.
 
     """
+    _DISPLAY_NAME = "Solarbank 3 E2700 Pro"
     _UUID_COMMAND: str = "8c850002-0302-41c5-b46e-cf057c562025"
     _UUID_TELEMETRY: str = "8c850003-0302-41c5-b46e-cf057c562025"
     _EXPECTED_TELEMETRY_LENGTH: int = 253

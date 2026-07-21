@@ -92,6 +92,7 @@ class SolixBLEDevice:
     """Solix BLE device object."""
     _UUID_COMMAND: str = UUID_COMMAND
     _UUID_TELEMETRY: str = UUID_TELEMETRY
+    _DISPLAY_NAME: str | None = None
 
     #: Command codes (hex) that carry telemetry for this device. Subclasses can
     #: override this if their model uses different telemetry command codes
@@ -540,7 +541,13 @@ class SolixBLEDevice:
 
         :returns: The name of the device or default string value.
         """
-        return self._ble_device.name or DEFAULT_METADATA_STRING
+        advertised_name = self._ble_device.name
+        if advertised_name and advertised_name.lower() not in {
+            "unknown",
+            "unknown device",
+        }:
+            return advertised_name
+        return self._DISPLAY_NAME or advertised_name or DEFAULT_METADATA_STRING
 
     @property
     def last_update(self) -> datetime | None:
