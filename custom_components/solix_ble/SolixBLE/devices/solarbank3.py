@@ -243,7 +243,21 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        return self._parse_float("c7")
+        return self._solar_pv_port_power_in("c7")
+
+    def _solar_pv_port_power_in(self, key: str) -> int:
+        """Return a PV-port value consistent with the reported PV total.
+
+        Some A17C5 firmware versions occasionally leave an individual MPPT
+        value stale while the aggregate PV field has already reached zero.
+        A positive port value is not physically possible in that state and
+        must not be exposed as live solar production.
+        """
+        value = max(0.0, self._parse_float(key))
+        total = max(0.0, self.solar_power_in)
+        if total <= 0 and value > 0:
+            return 0
+        return round(value)
 
     @property
     def solar_pv_2_power_in(self) -> int:
@@ -251,7 +265,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        value = self._parse_float("c8")
+        value = self._solar_pv_port_power_in("c8")
 
         # A17C5 firmware has been observed reporting a stale/truncated value
         # for c8 while ab still contains the correct total PV input.  Since
@@ -278,7 +292,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        return self._parse_float("c9")
+        return self._solar_pv_port_power_in("c9")
 
     @property
     def solar_pv_4_power_in(self) -> int:
@@ -286,7 +300,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        return self._parse_float("ca")
+        return self._solar_pv_port_power_in("ca")
 
     @property
     def temperature(self) -> int:

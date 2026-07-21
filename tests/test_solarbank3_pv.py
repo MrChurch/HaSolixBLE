@@ -33,3 +33,10 @@ def test_sb3_port_2_keeps_raw_value_when_values_match() -> None:
     device = _device_with_pv_values(385, 309, 23, 13, 40)
 
     assert device.solar_pv_2_power_in == 23
+
+
+def test_sb3_clears_stale_port_value_when_total_pv_is_zero() -> None:
+    device = _device_with_pv_values(0, 0, 0, 0, 40)
+
+    assert device.solar_power_in == 0
+    assert device.solar_pv_4_power_in == 0
