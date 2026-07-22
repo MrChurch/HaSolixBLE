@@ -13,6 +13,8 @@ from custom_components.solix_ble.SolixBLE.sb3_protocol import (
     build_sb3_schedule_plaintext,
     build_telemetry_request_plaintext,
     parse_packet,
+    SB3_SCHEDULE_MODE_CHARGE,
+    SB3_SCHEDULE_MODE_DISCHARGE,
 )
 
 
@@ -116,3 +118,19 @@ def test_sb3_schedule_rejects_non_50_watt_targets() -> None:
 
     with pytest.raises(ValueError):
         build_sb3_schedule_plaintext(125, fd_token=b"\x00\x00\x00\x00")
+
+
+def test_sb3_schedule_mode_changes_only_direction_byte() -> None:
+    """Charge/discharge uses the final byte of each 405e slot trailer."""
+    discharge = build_sb3_schedule_plaintext(
+        1000, mode=SB3_SCHEDULE_MODE_DISCHARGE, fd_token=b"\x00\x00\x00\x00"
+    )
+    charge = build_sb3_schedule_plaintext(
+        1000, mode=SB3_SCHEDULE_MODE_CHARGE, fd_token=b"\x00\x00\x00\x00"
+    )
+    assert [discharge[21 + 22 * day] for day in range(7)] == [0] * 7
+    assert [charge[21 + 22 * day] for day in range(7)] == [1] * 7
+    assert [a ^ b for a, b in zip(discharge, charge)] == [
+        1 if index in {21 + 22 * day for day in range(7)} else 0
+        for index in range(len(discharge))
+    ]

@@ -48,7 +48,10 @@ class Solarbank3ScheduleApplyButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Write the staged target as a uniform seven-day schedule."""
-        await self._device.set_schedule(self._device.schedule_power_target)
+        await self._device.set_schedule(
+            self._device.schedule_power_target,
+            mode=self._device.schedule_mode,
+        )
 
 
 class Solarbank3MaxLoadApplyButton(ButtonEntity):

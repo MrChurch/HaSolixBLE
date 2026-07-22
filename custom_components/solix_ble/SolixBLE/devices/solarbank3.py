@@ -12,6 +12,8 @@ from ..const import DEFAULT_METADATA_FLOAT, DEFAULT_METADATA_STRING
 from ..device import SolixBLEDevice
 from ..sb3_protocol import (
     SB3_MAX_LOAD_VALUES,
+    SB3_SCHEDULE_MODE_CHARGE,
+    SB3_SCHEDULE_MODE_DISCHARGE,
     SB3_SET_MAX_LOAD_COMMAND,
     SB3_SET_SCHEDULE_COMMAND,
     build_sb3_max_load_plaintext,
@@ -47,6 +49,7 @@ class Solarbank3(SolixBLEDevice):
         """Initialize the Solarbank 3 and its staged schedule target."""
         super().__init__(ble_device)
         self._schedule_power_target = 0
+        self._schedule_mode = SB3_SCHEDULE_MODE_DISCHARGE
         self._max_load_target = 1200
 
     @property
@@ -61,6 +64,17 @@ class Solarbank3(SolixBLEDevice):
         if not 0 <= power_w <= 1200 or power_w % 50:
             raise ValueError("power_w must be between 0 and 1200 W in 50 W steps")
         self._schedule_power_target = power_w
+
+    @property
+    def schedule_mode(self) -> str:
+        """Return the staged schedule direction."""
+        return self._schedule_mode
+
+    def set_schedule_mode(self, mode: str) -> None:
+        """Stage schedule charging or discharging without writing the device."""
+        if mode not in (SB3_SCHEDULE_MODE_DISCHARGE, SB3_SCHEDULE_MODE_CHARGE):
+            raise ValueError("mode must be 'discharge' or 'charge'")
+        self._schedule_mode = mode
 
     @property
     def max_load_target(self) -> int:
@@ -83,6 +97,7 @@ class Solarbank3(SolixBLEDevice):
         *,
         start_minutes: int = 0,
         end_minutes: int = 1440,
+        mode: str | None = None,
     ) -> None:
         """Set a uniform seven-day output schedule on the Solarbank 3.
 
@@ -95,6 +110,7 @@ class Solarbank3(SolixBLEDevice):
             power_w,
             start_minutes=start_minutes,
             end_minutes=end_minutes,
+            mode=self._schedule_mode if mode is None else mode,
         )
         await self._send_sb3_command(SB3_SET_SCHEDULE_COMMAND, payload)
 

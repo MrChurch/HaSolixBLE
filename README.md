@@ -48,6 +48,8 @@ buttons:
 
 - **Schedule power target**: 0–1200 W in 50 W steps; writes the seven-day
   `405e` schedule command.
+- **Schedule mode**: `discharge` or `charge`; the selected direction is encoded
+  in each schedule slot and is applied together with the target power.
 - **Maximum load limit**: 350, 600, 800 or 1200 W; writes the `4080` command.
 
 The active device value changes immediately over BLE and is visible in the

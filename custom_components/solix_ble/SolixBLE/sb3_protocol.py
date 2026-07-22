@@ -40,6 +40,9 @@ SB3_DEFAULT_CLIENT_ID = "79ebed35-dc9c-4904-b40c-72c4e8363a10"
 SB3_SET_SCHEDULE_COMMAND = bytes.fromhex("405e")
 SB3_SET_MAX_LOAD_COMMAND = bytes.fromhex("4080")
 SB3_MAX_LOAD_VALUES = (350, 600, 800, 1200)
+SB3_SCHEDULE_MODE_DISCHARGE = "discharge"
+SB3_SCHEDULE_MODE_CHARGE = "charge"
+SB3_SCHEDULE_MODES = (SB3_SCHEDULE_MODE_DISCHARGE, SB3_SCHEDULE_MODE_CHARGE)
 
 # Initial secure-conference material reconstructed from the A17C5 app path.
 # AES-GCM returns ciphertext followed by a 16-byte authentication tag.
@@ -302,6 +305,7 @@ def build_sb3_schedule_plaintext(
     *,
     start_minutes: int = 0,
     end_minutes: int = 1440,
+    mode: str = SB3_SCHEDULE_MODE_DISCHARGE,
     fd_token: bytes | None = None,
 ) -> bytes:
     """Build the Solarbank 3 ``405e`` schedule payload.
@@ -312,7 +316,10 @@ def build_sb3_schedule_plaintext(
     :meth:`SolixBLEDevice._send_command` immediately before encryption.
 
     Each block contains a 00:00--24:00 interval, the requested output power
-    and the captured ``0x0050`` trailer.
+    and the captured ``0x0050`` mode trailer.  The byte following ``0x50``
+    selects discharge (``0x00``) or charge (``0x01``).  This mapping was
+    confirmed by an A17C5 capture that changed 1000 W discharge -> 1000 W
+    charge while leaving every other field unchanged.
     Keeping the token injectable makes the binary layout testable while the
     default generates the same fresh four-byte value as the Android app.
     """
@@ -324,6 +331,10 @@ def build_sb3_schedule_plaintext(
         raise ValueError("start_minutes must be between 0 and 1440")
     if not 0 <= end_minutes <= 1440 or end_minutes < start_minutes:
         raise ValueError("end_minutes must be between start_minutes and 1440")
+    if mode not in SB3_SCHEDULE_MODES:
+        raise ValueError(
+            "mode must be one of: " + ", ".join(SB3_SCHEDULE_MODES)
+        )
     if fd_token is None:
         fd_token = secrets.token_bytes(4)
     if len(fd_token) != 4:
@@ -334,7 +345,7 @@ def build_sb3_schedule_plaintext(
         start_minutes.to_bytes(2, "little")
         + end_minutes.to_bytes(2, "little")
         + power_w.to_bytes(2, "little")
-        + b"\x50\x00"
+        + bytes((0x50, 0x01 if mode == SB3_SCHEDULE_MODE_CHARGE else 0x00))
     )
     for day in range(7):
         base = 0xA3 + 4 * day
