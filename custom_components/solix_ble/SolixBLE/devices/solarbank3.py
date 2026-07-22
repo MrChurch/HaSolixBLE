@@ -265,26 +265,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        value = self._solar_pv_port_power_in("c8")
-
-        # A17C5 firmware has been observed reporting a stale/truncated value
-        # for c8 while ab still contains the correct total PV input.  Since
-        # the four c7..ca values are the individual MPPT inputs, recover the
-        # missing port-2 contribution from the total when the discrepancy is
-        # clearly larger than normal float/rounding noise.  Keep the raw c8
-        # value for normal packets; this is deliberately a narrow workaround
-        # until another raw c405 capture identifies the exact wire-field bug.
-        total = self.solar_power_in
-        other_ports = (
-            self._parse_float("c7")
-            + self._parse_float("c9")
-            + self._parse_float("ca")
-        )
-        residual = total - other_ports
-        if residual > value + 5 and residual > 0 and total > value + other_ports + 5:
-            return round(residual)
-
-        return value
+        return self._solar_pv_port_power_in("c7")
 
     @property
     def solar_pv_3_power_in(self) -> int:
@@ -292,7 +273,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        return self._solar_pv_port_power_in("c9")
+        return self._solar_pv_port_power_in("c8")
 
     @property
     def solar_pv_4_power_in(self) -> int:
@@ -300,7 +281,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        return self._solar_pv_port_power_in("ca")
+        return self._solar_pv_port_power_in("c9")
 
     @property
     def temperature(self) -> int:
