@@ -48,15 +48,19 @@ buttons:
 
 - **Schedule power target**: 0–1200 W in 50 W steps; writes the seven-day
   `405e` schedule command.
-- **Schedule mode**: `discharge` or `charge`; the selected direction is encoded
-  in each schedule slot and is applied together with the target power.
+- **Schedule mode**: implemented and verified for both `discharge` and
+  `charge`. Select the direction in the dropdown, set the positive power
+  target, then press **Apply schedule**. The direction is encoded in each
+  schedule slot; power values are never negative.
 - **Maximum load limit**: 350, 600, 800 or 1200 W; writes the `4080` command.
 
+The charge/discharge mode and power target are sent together over the local
+BLE connection. The device therefore changes its active behavior immediately;
+the plan description/value shown in the Anker app is cloud-backed metadata and
+may still show the previous value.
+
 The active device value changes immediately over BLE and is visible in the
-telemetry. The plan description/value shown in the Anker app is cloud-backed
-metadata and is not rewritten by the local BLE command; the app may therefore
-continue to display the previous plan value even though the Solarbank is
-operating at the new target.
+telemetry.
 
 ## Supported devices
 
