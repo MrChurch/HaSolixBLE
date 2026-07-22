@@ -243,7 +243,7 @@ class Solarbank3(SolixBLEDevice):
 
         :returns: Solar power in or default int value.
         """
-        return self._solar_pv_port_power_in("c7")
+        return self._solar_pv_port_power_in("c6")
 
     def _solar_pv_port_power_in(self, key: str) -> int:
         """Return a PV-port value consistent with the reported PV total.
