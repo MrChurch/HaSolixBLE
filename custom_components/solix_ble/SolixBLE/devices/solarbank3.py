@@ -410,6 +410,16 @@ class Solarbank3(SolixBLEDevice):
         return round(self._parse_float("ad"))
 
     @property
+    def power_in(self) -> int:
+        """Total Power In during battery charging.
+
+        A17C5 charge captures report the active battery input in ``bc``.
+        The value is 300 W while a 300 W charge schedule is active and zero
+        in the corresponding discharge captures.
+        """
+        return round(self._parse_float("bc"))
+
+    @property
     def grid_to_home_power(self) -> int:
         """PV maximum limit reported by telemetry field ``d5``.
 

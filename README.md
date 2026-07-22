@@ -34,6 +34,7 @@ The following Solarbank 3 values are decoded from the encrypted `c405`
 telemetry response:
 
 - **Total Power Out** – live inverter output (`ad`)
+- **Total Power In** – active battery charging power (`bc`)
 - **Schedule power** – active charge/discharge schedule target (`b9`)
 - **PV Max** – PV maximum limit (`d5`)
 - Solar Power In (`ab`)

@@ -92,3 +92,11 @@ def test_sb3_schedule_target_syncs_from_live_device_value() -> None:
 
     assert device.sync_schedule_power_target() == 300
     assert device.schedule_power_target == 300
+
+
+def test_sb3_total_power_in_uses_charge_telemetry() -> None:
+    """The charge capture's ``bc`` field exposes total input power."""
+    device = Solarbank3.__new__(Solarbank3)
+    device._data = {"bc": _float_tlv(300)}
+
+    assert device.power_in == 300
