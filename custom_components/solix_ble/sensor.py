@@ -968,12 +968,13 @@ async def async_setup_entry(
                 ]
             )
 
-    # Current Solarbank 3 scheduled output power (device telemetry b9)
+    # Current Solarbank 3 scheduled power (device telemetry b9).  The value
+    # applies to both charge and discharge schedules.
     if type(device) in [Solarbank3]:
         sensors.append(
             SolixSensorEntity(
                 device,
-                "Schedule output power",
+                "Schedule power",
                 "W",
                 "schedule_power",
                 SensorDeviceClass.POWER,

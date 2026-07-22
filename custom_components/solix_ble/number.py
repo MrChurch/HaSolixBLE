@@ -54,6 +54,10 @@ class Solarbank3ScheduleNumber(RestoreEntity, NumberEntity):
     async def async_added_to_hass(self) -> None:
         """Restore the staged target after Home Assistant restarts."""
         await super().async_added_to_hass()
+        live_target = self._device.sync_schedule_power_target()
+        if live_target is not None:
+            self._attr_native_value = live_target
+            return
         last_state = await self.async_get_last_state()
         if last_state is not None:
             try:

@@ -81,3 +81,14 @@ def test_sb3_average_battery_percentage_includes_expansion_battery() -> None:
     assert device.battery_percentage == 77
     assert device.expansion_battery_1_percentage == 88
     assert device.battery_percentage_aggregate == 82.0
+
+
+def test_sb3_schedule_target_syncs_from_live_device_value() -> None:
+    """The HA slider starts at the active device schedule, not zero."""
+    device = Solarbank3.__new__(Solarbank3)
+    device._data = {"b9": bytes.fromhex("022c01")}
+    device._schedule_power_target = 0
+    device._schedule_power_target_staged = False
+
+    assert device.sync_schedule_power_target() == 300
+    assert device.schedule_power_target == 300

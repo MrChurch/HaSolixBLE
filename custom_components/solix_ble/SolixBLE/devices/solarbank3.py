@@ -49,21 +49,33 @@ class Solarbank3(SolixBLEDevice):
         """Initialize the Solarbank 3 and its staged schedule target."""
         super().__init__(ble_device)
         self._schedule_power_target = 0
+        self._schedule_power_target_staged = False
         self._schedule_mode = SB3_SCHEDULE_MODE_DISCHARGE
         self._max_load_target = 1200
 
     @property
     def schedule_power_target(self) -> int:
-        """Return the staged output target used by the apply button."""
+        """Return the staged target or live device schedule when unsaved."""
+        if not self._schedule_power_target_staged and self._data is not None:
+            return self.schedule_power
         return self._schedule_power_target
 
-    def set_schedule_power_target(self, power_w: int) -> None:
+    def set_schedule_power_target(self, power_w: int, *, staged: bool = True) -> None:
         """Stage a schedule target without writing the device."""
         if not isinstance(power_w, int) or isinstance(power_w, bool):
             raise TypeError("power_w must be an integer")
         if not 0 <= power_w <= 1200 or power_w % 50:
             raise ValueError("power_w must be between 0 and 1200 W in 50 W steps")
         self._schedule_power_target = power_w
+        self._schedule_power_target_staged = staged
+
+    def sync_schedule_power_target(self) -> int | None:
+        """Use the live ``b9`` schedule as the slider's initial value."""
+        if self._data is None or "b9" not in self._data:
+            return None
+        self._schedule_power_target_staged = False
+        self._schedule_power_target = self.schedule_power
+        return self._schedule_power_target
 
     @property
     def schedule_mode(self) -> str:
@@ -113,6 +125,8 @@ class Solarbank3(SolixBLEDevice):
             mode=self._schedule_mode if mode is None else mode,
         )
         await self._send_sb3_command(SB3_SET_SCHEDULE_COMMAND, payload)
+        self._schedule_power_target = power_w
+        self._schedule_power_target_staged = False
 
     async def set_max_load(self, max_load_w: int) -> None:
         """Set the Solarbank 3 maximum output/load limit via ``4080``."""
