@@ -66,3 +66,18 @@ def test_sb3_does_not_use_fixed_ca_as_pv_port() -> None:
     assert device.solar_power_in == 408
     assert device.solar_pv_2_power_in == 246
     assert device.solar_pv_4_power_in == 40
+
+
+def test_sb3_average_battery_percentage_includes_expansion_battery() -> None:
+    """Aggregate SOC averages the main and inserted battery percentages."""
+    device = Solarbank3.__new__(Solarbank3)
+    device._is_solarbank3_transport = True
+    device._data = {"a3": bytes((0x01, 77))}
+    device._sb3_battery_metadata = (
+        b"APCDJQD0F1440094"
+        + bytes((0x63, 0x01, 0x02, 28, 0x02, 88, 0x64))
+    )
+
+    assert device.battery_percentage == 77
+    assert device.expansion_battery_1_percentage == 88
+    assert device.battery_percentage_aggregate == 82.0

@@ -136,10 +136,17 @@ class Solarbank3(SolixBLEDevice):
         if self._data is None:
             return DEFAULT_METADATA_FLOAT
 
-        # Solarbank 3 uses ``a3`` for the battery state of charge.  The
+        # Solarbank 3 uses ``a3`` for the main unit state of charge.  The
         # similarly shaped ``a5`` field is the unit temperature, not an
-        # aggregate battery percentage.
-        return float(self._parse_int("a3", begin=1))
+        # aggregate battery percentage.  Expansion-battery SOC values are
+        # carried in the authenticated 4409 metadata response and must be
+        # included in the displayed average (77% + 88% => 82%).
+        percentages = [self._parse_int("a3", begin=1)]
+        for slot in range(1, 6):
+            percentage = self._expansion_battery(slot)[1]
+            if percentage is not None:
+                percentages.append(percentage)
+        return float(sum(percentages) // len(percentages))
 
     @property
     def battery_health(self) -> float:
