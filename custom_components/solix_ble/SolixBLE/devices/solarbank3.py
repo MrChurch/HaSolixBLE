@@ -142,6 +142,41 @@ class Solarbank3(SolixBLEDevice):
         return self._parse_string("a2", begin=1)
 
     @property
+    def software_version(self) -> str:
+        """Primary Solarbank firmware version from the authenticated 4830 read."""
+        return self.sb3_firmware_metadata.get("a2", DEFAULT_METADATA_STRING)
+
+    @property
+    def firmware_versions(self) -> str:
+        """Human-readable firmware list for the bank and detected batteries.
+
+        ``4830`` provides the two bank-side versions and component names.
+        Battery firmware strings are included only when they are present in
+        the decrypted ``4409`` response; the exact nested battery offsets are
+        not assumed from the app UI.
+        """
+        metadata = self.sb3_firmware_metadata
+        parts: list[str] = []
+        labels = (
+            ("Solarbank", "a2"),
+            ("Internal MCU", "a1"),
+            ("MCU component", "a4"),
+            ("ESP32 component", "a5"),
+        )
+        for label, key in labels:
+            if value := metadata.get(key):
+                parts.append(f"{label}: {value}")
+
+        for index, version in enumerate(self.sb3_battery_firmware_versions, 1):
+            parts.append(f"Battery {index}: {version}")
+
+        if not parts:
+            return DEFAULT_METADATA_STRING
+        if not self.sb3_battery_firmware_versions:
+            parts.append("Battery firmware: not reported")
+        return " | ".join(parts)
+
+    @property
     def battery_percentage_aggregate(self) -> float:
         """Battery Percentage average across all batteries.
 

@@ -7,6 +7,7 @@ from custom_components.solix_ble.SolixBLE.sb3_protocol import (
     SB3State,
     aes_gcm_decrypt,
     build_packet,
+    build_firmware_request_packet,
     build_security_auth_packet,
     build_security_auth_plaintext,
     build_sb3_max_load_plaintext,
@@ -134,3 +135,17 @@ def test_sb3_schedule_mode_changes_only_direction_byte() -> None:
         1 if index in {21 + 22 * day for day in range(7)} else 0
         for index in range(len(discharge))
     ]
+
+
+def test_4030_firmware_query_uses_same_authenticated_timestamp_tlv() -> None:
+    """4030 addresses the firmware read while retaining the SB3 session format."""
+    key = bytes(range(16))
+    nonce = bytes(range(12))
+    packet = build_firmware_request_packet(key, nonce, 1_700_000_000)
+
+    parsed = parse_packet(packet)
+    assert parsed.pattern == bytes.fromhex("03000f")
+    assert parsed.command == bytes.fromhex("4030")
+    assert aes_gcm_decrypt(key, nonce, parsed.payload) == bytes.fromhex(
+        "a10121fe050300f15365"
+    )

@@ -1178,6 +1178,13 @@ async def async_setup_entry(
             [
                 SolixSensorEntity(
                     device,
+                    "Firmware Versions",
+                    None,
+                    "firmware_versions",
+                    state_class=None,
+                ),
+                SolixSensorEntity(
+                    device,
                     "Battery Power",
                     "W",
                     "battery_power",

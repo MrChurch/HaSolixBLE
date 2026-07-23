@@ -3,6 +3,7 @@
 import struct
 
 from custom_components.solix_ble.SolixBLE.devices.solarbank3 import Solarbank3
+from custom_components.solix_ble.SolixBLE.device import _parse_sb3_firmware_payload
 
 
 def _float_tlv(value: float) -> bytes:
@@ -100,3 +101,41 @@ def test_sb3_total_power_in_uses_charge_telemetry() -> None:
     device._data = {"bc": _float_tlv(300)}
 
     assert device.power_in == 300
+
+
+def test_sb3_firmware_sensor_lists_bank_and_detected_battery_versions() -> None:
+    """The display value keeps the proven bank fields and decoded batteries."""
+    device = Solarbank3.__new__(Solarbank3)
+    device._is_solarbank3_transport = True
+    device._sb3_firmware_metadata = {
+        "a1": "v0.3.3.0",
+        "a2": "v1.0.7.1",
+        "a3": "A17C5",
+        "a4": "A17C5_mcu",
+        "a5": "A17C5_esp32",
+    }
+    device._sb3_battery_firmware_versions = ("v0.3.5.5",) * 3
+
+    assert device.software_version == "v1.0.7.1"
+    assert device.firmware_versions == (
+        "Solarbank: v1.0.7.1 | Internal MCU: v0.3.3.0 | "
+        "MCU component: A17C5_mcu | ESP32 component: A17C5_esp32 | "
+        "Battery 1: v0.3.5.5 | Battery 2: v0.3.5.5 | "
+        "Battery 3: v0.3.5.5"
+    )
+
+
+def test_sb3_firmware_response_decodes_authenticated_ascii_tlvs() -> None:
+    """The 4830 response maps A1-A5 without using telemetry offsets."""
+    payload = (
+        b"\x04\xa1\x08v0.3.3.0\xa2\x08v1.0.7.1\xa3\x05A17C5"
+        b"\xa4\x09A17C5_mcu\xa5\x0bA17C5_esp32"
+    )
+
+    assert _parse_sb3_firmware_payload(payload) == {
+        "a1": "v0.3.3.0",
+        "a2": "v1.0.7.1",
+        "a3": "A17C5",
+        "a4": "A17C5_mcu",
+        "a5": "A17C5_esp32",
+    }

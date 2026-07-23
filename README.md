@@ -23,7 +23,8 @@ This repository is the actively tested fork:
 
 ## Solarbank 3 E2700 Pro (A17C5)
 
-Solarbank 3 support has been tested with an A17C5 running firmware 0.3.3.0.
+Solarbank 3 support has been tested with an A17C5 reporting primary firmware
+`v1.0.7.1` and internal MCU firmware `v0.3.3.0`.
 The integration establishes the authenticated local BLE session using the
 device's ECDH key exchange, negotiated AES-GCM session key and MAC validation.
 No cloud account or firmware modification is required.
@@ -41,6 +42,16 @@ telemetry response:
 - PV Yield (`ac`)
 - Solar Power In Port 1–4 (`c7`–`ca`)
 - Battery, grid and household power values
+
+### Firmware information
+
+After authentication the integration performs the read-only `4030` firmware
+query. The authenticated `4830` response is decoded into the **Firmware
+Versions** sensor. On the tested A17C5 it reports the primary Solarbank
+firmware (`v1.0.7.1`), the internal MCU firmware (`v0.3.3.0`) and the MCU/
+ESP32 component identifiers. Battery firmware versions are appended when they
+are present in the decrypted `4409` metadata; no value is guessed from the
+Anker app display.
 
 ### Local controls
 

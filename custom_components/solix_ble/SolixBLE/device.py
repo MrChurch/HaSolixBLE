@@ -8,6 +8,7 @@ import asyncio
 import inspect
 import json
 import logging
+import re
 import struct
 import time
 from collections.abc import Callable
@@ -33,6 +34,7 @@ from .sb3_protocol import (
     aes_gcm_decrypt,
     aes_gcm_encrypt,
     build_packet,
+    build_firmware_request_packet,
     build_telemetry_request_packet,
     load_sb3_account_id,
 )
@@ -88,6 +90,49 @@ def _is_sb3_command_acknowledgement(payload: bytes) -> bool:
     return len(payload) == 4 and payload[:3] == b"\x01\xa1\x01"
 
 
+def _parse_sb3_firmware_payload(payload: bytes) -> dict[str, str]:
+    """Decode the authenticated ``4830`` firmware-information response.
+
+    The response starts with a one-byte status/header (``04`` in the
+    Solarbank 3 capture), followed by ordinary one-byte length TLVs.  Unlike
+    telemetry, the values are plain ASCII strings and have no type byte.
+    """
+    if not payload:
+        return {}
+
+    index = 1 if payload[0] in (0x00, 0x04) else 0
+    parsed: dict[str, str] = {}
+    while index + 2 <= len(payload):
+        parameter_id = payload[index]
+        length = payload[index + 1]
+        index += 2
+        value = payload[index : index + length]
+        if len(value) != length:
+            return {}
+        try:
+            parsed[f"{parameter_id:02x}"] = value.decode("ascii")
+        except UnicodeDecodeError:
+            # A malformed/non-text TLV must not make the whole connection
+            # unavailable; simply ignore that field and continue.
+            pass
+        index += length
+
+    return parsed if index == len(payload) else {}
+
+
+def _extract_sb3_firmware_versions(payload: bytes) -> tuple[str, ...]:
+    """Extract version-shaped ASCII values from an authenticated 4409 blob.
+
+    Battery firmware placement inside 4409 is not fully mapped yet.  Keeping
+    this conservative regex-based extraction lets us expose versions when the
+    device supplies them without fabricating a value from an app screenshot.
+    """
+    versions = re.findall(rb"v\d+(?:\.\d+){3}", payload)
+    # Preserve repeated values: the same firmware string may legitimately be
+    # present once per inserted battery.
+    return tuple(version.decode("ascii") for version in versions[:5])
+
+
 class SolixBLEDevice:
     """Solix BLE device object."""
     _UUID_COMMAND: str = UUID_COMMAND
@@ -130,6 +175,8 @@ class SolixBLEDevice:
         # a different schema from c405/c840 telemetry and must not be merged
         # into the normal device parameter dictionary.
         self._sb3_battery_metadata: bytes | None = None
+        self._sb3_firmware_metadata: dict[str, str] = {}
+        self._sb3_battery_firmware_versions: tuple[str, ...] = ()
         self._sb3_raw_fragments: dict[str, dict[int, bytes]] = {}
         self._sb3_handshake: SB3Handshake | None = None
         self._sb3_checkpoint_complete: bool = False
@@ -466,6 +513,16 @@ class SolixBLEDevice:
                 handshake.next_telemetry_timestamp(),
             )
         )
+        # Firmware information is a separate authenticated read-only query.
+        # It returns 4830 and must not replace the live 4040 telemetry stream.
+        _LOGGER.debug("Solarbank 3 post-connect: requesting firmware metadata")
+        await self._write_protocol_packet(
+            build_firmware_request_packet(
+                handshake.session_key,
+                handshake.session_nonce,
+                handshake.next_telemetry_timestamp(),
+            )
+        )
 
     async def disconnect(self) -> None:
         """Disconnect from device and reset internal state.
@@ -526,6 +583,20 @@ class SolixBLEDevice:
         if not self._is_solarbank3_transport or self._sb3_battery_metadata is None:
             return None
         return bytes(self._sb3_battery_metadata)
+
+    @property
+    def sb3_firmware_metadata(self) -> dict[str, str]:
+        """Return the latest decrypted Solarbank 3 firmware TLVs."""
+        if not self._is_solarbank3_transport:
+            return {}
+        return dict(self._sb3_firmware_metadata)
+
+    @property
+    def sb3_battery_firmware_versions(self) -> tuple[str, ...]:
+        """Return firmware strings found in the decrypted 4409 metadata."""
+        if not self._is_solarbank3_transport:
+            return ()
+        return tuple(self._sb3_battery_firmware_versions)
 
     @property
     def address(self) -> str:
@@ -1024,11 +1095,31 @@ class SolixBLEDevice:
                     # as if they had disappeared.  Solarbank3 exposes this
                     # data to its model-specific decoder.
                     self._sb3_battery_metadata = bytes(plaintext)
+                    self._sb3_battery_firmware_versions = _extract_sb3_firmware_versions(
+                        plaintext
+                    )
                     self._last_data_timestamp = datetime.now()
                     _LOGGER.debug(
                         "SB3 battery metadata RX plaintext=%s", plaintext.hex()
                     )
                     self._run_state_changed_callbacks()
+                    return
+                if cmd_hex == "4830":
+                    firmware_metadata = _parse_sb3_firmware_payload(plaintext)
+                    if firmware_metadata:
+                        self._sb3_firmware_metadata = firmware_metadata
+                        self._last_data_timestamp = datetime.now()
+                        _LOGGER.debug(
+                            "SB3 firmware metadata RX plaintext=%s fields=%s",
+                            plaintext.hex(),
+                            firmware_metadata,
+                        )
+                        self._run_state_changed_callbacks()
+                    else:
+                        _LOGGER.debug(
+                            "SB3 firmware response had unexpected format: %s",
+                            plaintext.hex(),
+                        )
                     return
                 if not _is_complete_sb3_tlv_payload(plaintext):
                     _LOGGER.debug(
@@ -1543,6 +1634,8 @@ class SolixBLEDevice:
         # it together with the normal telemetry below.
         if reset_data:
             self._sb3_battery_metadata = None
+            self._sb3_firmware_metadata = {}
+            self._sb3_battery_firmware_versions = ()
         self._sb3_raw_fragments = {}
         self._sb3_handshake = None
         self._sb3_checkpoint_complete = False

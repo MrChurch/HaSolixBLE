@@ -300,6 +300,26 @@ def build_telemetry_request_packet(
     )
 
 
+def build_firmware_request_packet(
+    session_key: bytes, session_nonce: bytes, timestamp: int | None = None
+) -> bytes:
+    """Build the authenticated ``4030`` firmware-information request.
+
+    The Android firmware page uses the same replay-protected status TLV as
+    ``4040`` but addresses command ``4030``; the Solarbank answers with
+    ``4830`` and a compact ASCII TLV list.
+    """
+    return build_packet(
+        b"\x03\x00\x0f",
+        b"\x40\x30",
+        aes_gcm_encrypt(
+            session_key,
+            session_nonce,
+            build_telemetry_request_plaintext(timestamp),
+        ),
+    )
+
+
 def build_sb3_schedule_plaintext(
     power_w: int,
     *,

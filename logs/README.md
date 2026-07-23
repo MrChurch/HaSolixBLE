@@ -78,3 +78,19 @@ the numeric BLE command values and encrypted field layouts are not present as
 readable source strings. Static APK inspection therefore confirms the
 feature surface, but does not by itself prove which function owns a specific
 encrypted command payload.
+
+## Decrypted firmware response
+
+The authenticated `4030` -> `4830` exchange has since been decoded from the
+matching session transcript. Its compact TLVs report:
+
+* `A1`: internal MCU firmware `v0.3.3.0`;
+* `A2`: primary Solarbank firmware `v1.0.7.1`;
+* `A3`: model `A17C5`;
+* `A4`/`A5`: `A17C5_mcu` and `A17C5_esp32` component identifiers.
+
+The integration now requests this read-only response after session setup and
+exposes it through the Solarbank 3 **Firmware Versions** sensor. Battery
+firmware strings are extracted from decrypted `4409` metadata only when the
+device actually includes them; the three `v0.3.5.5` values reported by the
+app have not been treated as independently proven BLE fields yet.
