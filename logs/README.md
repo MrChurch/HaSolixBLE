@@ -28,3 +28,17 @@ The HCI capture does not contain the session key, so the battery serials,
 capacity/type byte, firmware versions, and the plaintext AC-out command fields
 cannot be decoded from this file alone. A matching Home Assistant debug trace
 from the same run is required for those mappings.
+
+## `btsnoop_hci (18).log`
+
+This follow-up capture contains the requested light, timeout, SOC-limit,
+MPPT-limit, AC-input-limit and firmware-list interactions. The command
+inventory adds repeated `4067`, `4068` and `409a` exchanges (with `4867`,
+`4868` and `489a` replies), while the already observed light candidates
+`4030`/`4073` are present again. The capture also contains 193-byte `4409`
+metadata packets, consistent with three expansion-battery records.
+
+The HCI payloads remain session-encrypted. Therefore the command IDs can be
+correlated with the UI actions, but their state/value fields must not be
+implemented until a matching decrypted HA trace or a controlled live test
+confirms the payload layout.
