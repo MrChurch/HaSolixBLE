@@ -1,3 +1,13 @@
 venv
 .venv/
 __pycache__
+
+# Local BLE captures can contain device addresses, serial numbers and
+# encrypted session traffic. Keep them in the workspace for analysis, but do
+# not publish them accidentally with a normal Git commit.
+logs/**/*.log
+logs/**/*.last
+logs/**/*.txt
+logs/**/*.json
+logs/**/*.jsonl
+logs/**/*.csv
