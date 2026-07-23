@@ -42,3 +42,19 @@ The HCI payloads remain session-encrypted. Therefore the command IDs can be
 correlated with the UI actions, but their state/value fields must not be
 implemented until a matching decrypted HA trace or a controlled live test
 confirms the payload layout.
+
+## Differential captures 19-21
+
+The three isolated app captures provide a useful command-level separation:
+
+* Capture 19 (light on/off) does not add a new command family beyond the
+  normal session traffic.
+* Capture 20 (repeated firmware-list requests) increases `4030`/`4830` and
+  contains additional `4840` responses. `4030` is therefore the current
+  firmware-query candidate.
+* Capture 21 (AC emergency outlet on/off) increases `4073`/`4873` only.
+  `4073` is therefore the current AC-OUT/Notstromsteckdose candidate.
+
+This is a differential identification of command families, not a value
+mapping: all application payloads are still protected by the dynamic SB3
+session encryption.
