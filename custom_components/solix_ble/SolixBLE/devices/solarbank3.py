@@ -399,6 +399,21 @@ class Solarbank3(SolixBLEDevice):
         return self._expansion_battery_value(3, 2)
 
     @property
+    def expansion_battery_3_serial_number(self) -> str | None:
+        """Serial number of the third expansion battery (metadata slot 4)."""
+        return self._expansion_battery_value(4, 0)
+
+    @property
+    def expansion_battery_3_percentage(self) -> int | None:
+        """State of charge of the third expansion battery."""
+        return self._expansion_battery_value(4, 1)
+
+    @property
+    def expansion_battery_3_temperature(self) -> int | None:
+        """Temperature of the third expansion battery."""
+        return self._expansion_battery_value(4, 2)
+
+    @property
     def power_out(self) -> int:
         """Total Power Out.
 

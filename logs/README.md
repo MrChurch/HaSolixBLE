@@ -17,3 +17,14 @@ timestamp). Existing files are de-duplicated by SHA-256 before copying.
 
 `copy-manifest.csv` records the SHA-256 and byte size of the files imported in
 the current archive pass.
+
+## `btsnoop_hci (17).log`
+
+This capture covers a Solarbank 3 with three connected expansion batteries
+(one BP1600 and two BP2700) and two AC emergency-outlet toggles. The encrypted
+`4409` telemetry metadata occurs with both 141-byte and 193-byte protocol
+payloads; the larger payload is consistent with the additional battery record.
+The HCI capture does not contain the session key, so the battery serials,
+capacity/type byte, firmware versions, and the plaintext AC-out command fields
+cannot be decoded from this file alone. A matching Home Assistant debug trace
+from the same run is required for those mappings.

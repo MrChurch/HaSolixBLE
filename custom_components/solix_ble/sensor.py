@@ -941,7 +941,7 @@ async def async_setup_entry(
     # but entities are registered up front so Home Assistant does not need a
     # reload when a battery is inserted or removed.
     if type(device) is Solarbank3:
-        for slot in (1, 2):
+        for slot in (1, 2, 3):
             sensors.extend(
                 [
                     SolixSensorEntity(
