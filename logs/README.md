@@ -58,3 +58,23 @@ The three isolated app captures provide a useful command-level separation:
 This is a differential identification of command families, not a value
 mapping: all application payloads are still protected by the dynamic SB3
 session encryption.
+
+## APK 3.8.0 static cross-check
+
+The supplied Flutter APK contains compiled A17C5-related symbols for the
+same functional areas:
+
+* lighting: `setLocationLightSwitchCmd`, `setLcdLight`,
+  `setAmbientLightSwitch`, `setDeviceLightMode`, `setDevicePullLightTime`,
+  `setLightAndSOSCmd`, `setLightState`, `setLightness` and `setLightnessSwitch`;
+* AC output: `setAcOutput`, `setAcOutputMode`, `setAcOutputSmartMode`,
+  `acOutputCountDownEnable` and `acOutputState`;
+* firmware: `firmwareVersion`, `firmwareBattery`, `checkFirmware` and
+  `firmwareUpdateRequest`.
+
+This confirms that the UI has separate controls for lighting, AC output and
+firmware information. The APK is Flutter AOT (`lib/arm64-v8a/libapp.so`), so
+the numeric BLE command values and encrypted field layouts are not present as
+readable source strings. Static APK inspection therefore confirms the
+feature surface, but does not by itself prove which function owns a specific
+encrypted command payload.
