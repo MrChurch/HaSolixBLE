@@ -23,6 +23,7 @@ from .SolixBLE import (
     PrimeCharger250w,
     PrimePowerBank20k,
     Solarbank2,
+    Solarbank2AC,
     Solarbank3,
     SolixBLEDevice,
 )
@@ -59,6 +60,8 @@ def get_power_station_class(model: Models) -> SolixBLEDevice:
         return PrimePowerBank20k
     elif model is Models.SOLARBANK_2:
         return Solarbank2
+    elif model is Models.SOLARBANK_2_AC:
+        return Solarbank2AC
     elif model is Models.SOLARBANK_3:
         return Solarbank3
     elif model is Models.UNKNOWN:

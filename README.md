@@ -29,6 +29,19 @@ The integration establishes the authenticated local BLE session using the
 device's ECDH key exchange, negotiated AES-GCM session key and MAC validation.
 No cloud account or firmware modification is required.
 
+### Solarbank 2 AC
+
+Solarbank 2 AC is available as a separate model selection in the integration.
+It currently reuses the established Solarbank 2 BLE telemetry and control
+mapping, including AC output, solar input, battery power, energy counters,
+usage mode, cutoff thresholds, light and heater status.  The separate device
+class keeps the AC variant distinguishable while further Solarbank 2 AC
+captures are collected for variant-specific fields.
+The first AC capture confirms the normal encrypted `c405` telemetry stream;
+cutoff, maximum-load and usage-mode values that are not valid Solarbank 2
+enum values are exposed as `Unknown` until their AC-specific encoding is
+confirmed.
+
 ### Telemetry
 
 The following Solarbank 3 values are decoded from the encrypted `c405`

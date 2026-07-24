@@ -445,3 +445,45 @@ class Solarbank2(SolixBLEDevice):
             else DEFAULT_METADATA_BOOL
         )
 
+
+class Solarbank2AC(Solarbank2):
+    """Solarbank 2 AC model using the Solarbank 2 telemetry schema.
+
+    The AC variant currently exposes the same authenticated BLE telemetry
+    fields and controls as the existing Solarbank 2 implementation.  It is a
+    separate class so Home Assistant can distinguish the device explicitly
+    while we collect AC-variant captures for any future field differences.
+    """
+
+    @property
+    def output_cutoff_data(self) -> SBPowerCutoff:
+        """Return the AC output cutoff when the payload exposes it."""
+        try:
+            return super().output_cutoff_data
+        except ValueError:
+            return SBPowerCutoff.UNKNOWN
+
+    @property
+    def input_cutoff_data(self) -> SBPowerCutoff:
+        """Return the AC input cutoff when the payload exposes it."""
+        try:
+            return super().input_cutoff_data
+        except ValueError:
+            return SBPowerCutoff.UNKNOWN
+
+    @property
+    def max_load(self) -> MaxLoadSB2:
+        """Return the AC maximum load or UNKNOWN for an unsupported value."""
+        try:
+            return super().max_load
+        except ValueError:
+            return MaxLoadSB2.UNKNOWN
+
+    @property
+    def usage_mode(self) -> SBUsageMode:
+        """Return the AC usage mode or UNKNOWN for an unsupported value."""
+        try:
+            return super().usage_mode
+        except ValueError:
+            return SBUsageMode.UNKNOWN
+
