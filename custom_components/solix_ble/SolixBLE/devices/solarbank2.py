@@ -4,6 +4,8 @@
 
 """
 
+import os
+import time
 from enum import Enum
 
 from ..const import (
@@ -13,6 +15,12 @@ from ..const import (
 )
 from ..device import SolixBLEDevice
 from ..states import GridStatus, LightMode, SBPowerCutoff, SBUsageMode, TemperatureUnit
+
+
+CMD_SB2_SET_SCHEDULE = bytes.fromhex("405e")
+CMD_SB2_SET_MAX_LOAD = bytes.fromhex("4080")
+CMD_SB2_SET_RESERVED_POWER = bytes.fromhex("4067")
+CMD_SB2_SET_LIGHT = bytes.fromhex("4068")
 
 
 class MaxLoadSB2(Enum):
@@ -55,6 +63,75 @@ class Solarbank2(SolixBLEDevice):
     """
 
     _EXPECTED_TELEMETRY_LENGTH: int = 253
+
+    async def _send_command(self, cmd: bytes, payload: bytes) -> None:
+        """Send a legacy Solarbank 2 command with a current Unix timestamp."""
+        if not self.negotiated:
+            raise ConnectionError("Not connected to device")
+        timestamp = int(time.time()).to_bytes(4, "little")
+        encrypted = self._encrypt_payload(payload + bytes.fromhex("fe0503") + timestamp)
+        packet = self._build_packet(bytes.fromhex("03000f"), cmd, encrypted)
+        await self._client.write_gatt_char(self._command_characteristic, packet)
+
+    @staticmethod
+    def _build_set_schedule_payload(power_w: int) -> bytes:
+        """Build the observed uniform seven-day 405e schedule payload."""
+        if not 0 <= power_w <= 800:
+            raise ValueError("power_w must be between 0 and 800 W")
+        schedule = (0).to_bytes(2, "little") + (1440).to_bytes(2, "little")
+        schedule += power_w.to_bytes(2, "little") + bytes.fromhex("5000")
+        payload = bytearray.fromhex("a10121a2020101")
+        for day in range(7):
+            base = 0xA3 + 4 * day
+            payload += bytes([base]) + bytes.fromhex("020101")
+            payload += bytes([base + 1]) + bytes.fromhex("0904") + schedule
+            payload += bytes([base + 2]) + bytes.fromhex("020100")
+            payload += bytes([base + 3]) + bytes.fromhex("0104")
+        payload += bytes.fromhex("fd0503") + os.urandom(4)
+        return bytes(payload)
+
+    async def set_schedule(self, power_w: int) -> None:
+        """Set a uniform all-day Solarbank 2 schedule."""
+        await self._send_command(CMD_SB2_SET_SCHEDULE, self._build_set_schedule_payload(power_w))
+
+    @staticmethod
+    def _build_set_max_load_payload(load: MaxLoadSB2) -> bytes:
+        """Build the observed 4080 maximum-load payload."""
+        if load is MaxLoadSB2.UNKNOWN:
+            raise ValueError("MaxLoadSB2.UNKNOWN is not a valid setter input")
+        watts = load.value.to_bytes(2, "little")
+        return bytes.fromhex("a10121a20302") + watts + bytes.fromhex("a303020000")
+
+    async def set_max_load(self, load: MaxLoadSB2) -> None:
+        """Set the Solarbank 2 AC output limit."""
+        await self._send_command(CMD_SB2_SET_MAX_LOAD, self._build_set_max_load_payload(load))
+
+    @staticmethod
+    def _build_set_light_payload(light_on: bool) -> bytes:
+        """Build the observed 4068 light-switch payload."""
+        state = 0 if light_on else 1
+        return bytes.fromhex(f"a10121a2020100a30201{state:02x}")
+
+    async def set_light_switch(self, light_on: bool) -> None:
+        """Set the Solarbank 2 status light."""
+        await self._send_command(CMD_SB2_SET_LIGHT, self._build_set_light_payload(light_on))
+
+    @staticmethod
+    def _build_set_reserved_power_payload(level: SBPowerCutoff) -> bytes:
+        """Build the captured 4067 reserved-power payload."""
+        mapping = {5: 4, 10: 5}
+        if level is SBPowerCutoff.UNKNOWN or level.value not in mapping:
+            raise ValueError("Only captured 5% and 10% reserved-power values are supported")
+        pct = level.value
+        return bytes.fromhex(
+            f"a10121a20201{pct:02x}a30201{mapping[pct]:02x}a40201{pct:02x}"
+        )
+
+    async def set_reserved_power(self, level: SBPowerCutoff) -> None:
+        """Set the captured Solarbank 2 reserved-power level."""
+        await self._send_command(
+            CMD_SB2_SET_RESERVED_POWER, self._build_set_reserved_power_payload(level)
+        )
 
     @property
     def serial_number(self) -> str:
@@ -486,4 +563,12 @@ class Solarbank2AC(Solarbank2):
             return super().usage_mode
         except ValueError:
             return SBUsageMode.UNKNOWN
+
+    @property
+    def temperature_unit(self) -> TemperatureUnit:
+        """Return Unknown when the AC telemetry uses a non-enum field."""
+        try:
+            return super().temperature_unit
+        except ValueError:
+            return TemperatureUnit.UNKNOWN
 
