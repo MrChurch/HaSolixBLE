@@ -64,6 +64,34 @@ class Solarbank2(SolixBLEDevice):
 
     _EXPECTED_TELEMETRY_LENGTH: int = 253
 
+    def __init__(self, ble_device) -> None:
+        """Initialize Solarbank 2 state and staged control values."""
+        super().__init__(ble_device)
+        self._schedule_power_target = 0
+        self._max_load_target = MaxLoadSB2.W800.value
+
+    @property
+    def schedule_power_target(self) -> int:
+        """Return the staged all-day schedule target in watts."""
+        return self._schedule_power_target
+
+    def set_schedule_power_target(self, power_w: int) -> None:
+        """Stage an all-day schedule target without writing the device."""
+        if not 0 <= power_w <= 800 or power_w % 10:
+            raise ValueError("power_w must be between 0 and 800 W in 10 W steps")
+        self._schedule_power_target = power_w
+
+    @property
+    def max_load_target(self) -> int:
+        """Return the staged maximum-load target in watts."""
+        return self._max_load_target
+
+    def set_max_load_target(self, load_w: int) -> None:
+        """Stage a maximum-load target without writing the device."""
+        if load_w not in {member.value for member in MaxLoadSB2 if member is not MaxLoadSB2.UNKNOWN}:
+            raise ValueError(f"unsupported Solarbank 2 maximum load: {load_w}")
+        self._max_load_target = load_w
+
     async def _send_command(self, cmd: bytes, payload: bytes) -> None:
         """Send a legacy Solarbank 2 command with a current Unix timestamp."""
         if not self.negotiated:

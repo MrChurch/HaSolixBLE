@@ -9,7 +9,8 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .SolixBLE import Solarbank3
+from .SolixBLE import Solarbank2AC, Solarbank3
+from .SolixBLE.devices.solarbank2 import MaxLoadSB2
 from .SolixBLE.device import SolixBLEDevice
 from .SolixBLE.sb3_protocol import (
     SB3_MAX_LOAD_VALUES,
@@ -29,6 +30,44 @@ async def async_setup_entry(
         async_add_entities(
             [Solarbank3MaxLoadSelect(device), Solarbank3ScheduleModeSelect(device)]
         )
+    elif isinstance(device, Solarbank2AC):
+        async_add_entities([Solarbank2ACMaxLoadSelect(device)])
+
+
+class Solarbank2ACMaxLoadSelect(RestoreEntity, SelectEntity):
+    """Staged maximum-load selector for Solarbank 2 AC."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Maximum load limit"
+    _attr_icon = "mdi:flash-outline"
+
+    def __init__(self, device: Solarbank2AC) -> None:
+        self._device = device
+        self._attr_unique_id = f"{device.address}_max_load_limit"
+        self._attr_device_info = DeviceInfo(
+            name=device.name,
+            connections={(CONNECTION_BLUETOOTH, device.address)},
+        )
+        self._attr_options = [str(member.value) for member in MaxLoadSB2 if member is not MaxLoadSB2.UNKNOWN]
+        self._attr_current_option = str(device.max_load_target)
+
+    @property
+    def available(self) -> bool:
+        return self._device.available
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in self._attr_options:
+            self._device.set_max_load_target(int(last_state.state))
+            self._attr_current_option = last_state.state
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in self._attr_options:
+            raise ValueError(f"unsupported Solarbank 2 maximum load: {option}")
+        self._device.set_max_load_target(int(option))
+        self._attr_current_option = option
+        self.async_write_ha_state()
 
 
 class Solarbank3ScheduleModeSelect(RestoreEntity, SelectEntity):

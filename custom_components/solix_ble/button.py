@@ -8,7 +8,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .SolixBLE import Solarbank3
+from .SolixBLE import Solarbank2AC, Solarbank3
+from .SolixBLE.devices.solarbank2 import MaxLoadSB2
 from .SolixBLE.device import SolixBLEDevice
 
 
@@ -23,6 +24,56 @@ async def async_setup_entry(
         async_add_entities(
             [Solarbank3ScheduleApplyButton(device), Solarbank3MaxLoadApplyButton(device)]
         )
+    elif isinstance(device, Solarbank2AC):
+        async_add_entities(
+            [Solarbank2ACScheduleApplyButton(device), Solarbank2ACMaxLoadApplyButton(device)]
+        )
+
+
+class Solarbank2ACScheduleApplyButton(ButtonEntity):
+    """Apply the staged schedule to Solarbank 2 AC."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Apply schedule"
+    _attr_icon = "mdi:content-save-check"
+
+    def __init__(self, device: Solarbank2AC) -> None:
+        self._device = device
+        self._attr_unique_id = f"{device.address}_schedule_apply"
+        self._attr_device_info = DeviceInfo(
+            name=device.name,
+            connections={(CONNECTION_BLUETOOTH, device.address)},
+        )
+
+    @property
+    def available(self) -> bool:
+        return self._device.negotiated
+
+    async def async_press(self) -> None:
+        await self._device.set_schedule(self._device.schedule_power_target)
+
+
+class Solarbank2ACMaxLoadApplyButton(ButtonEntity):
+    """Apply the staged maximum load to Solarbank 2 AC."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Apply maximum load limit"
+    _attr_icon = "mdi:flash-check"
+
+    def __init__(self, device: Solarbank2AC) -> None:
+        self._device = device
+        self._attr_unique_id = f"{device.address}_max_load_apply"
+        self._attr_device_info = DeviceInfo(
+            name=device.name,
+            connections={(CONNECTION_BLUETOOTH, device.address)},
+        )
+
+    @property
+    def available(self) -> bool:
+        return self._device.negotiated
+
+    async def async_press(self) -> None:
+        await self._device.set_max_load(MaxLoadSB2(self._device.max_load_target))
 
 
 class Solarbank3ScheduleApplyButton(ButtonEntity):
