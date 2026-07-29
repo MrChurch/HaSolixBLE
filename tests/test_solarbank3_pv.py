@@ -84,6 +84,19 @@ def test_sb3_average_battery_percentage_includes_expansion_battery() -> None:
     assert device.battery_percentage_aggregate == 82.0
 
 
+def test_sb3_new_firmware_uses_6a_battery_metadata_marker() -> None:
+    """Newer SB3 firmware changes only the metadata marker prefix."""
+    device = Solarbank3.__new__(Solarbank3)
+    device._sb3_battery_metadata = (
+        b"APCDJF4G72230095"
+        + bytes((0x6A, 0x01, 0x02, 25, 0x02, 80, 0x64))
+    )
+
+    assert device.expansion_battery_1_serial_number == "APCDJF4G72230095"
+    assert device.expansion_battery_1_temperature == 25
+    assert device.expansion_battery_1_percentage == 80
+
+
 def test_sb3_schedule_target_syncs_from_live_device_value() -> None:
     """The HA slider starts at the active device schedule, not zero."""
     device = Solarbank3.__new__(Solarbank3)
