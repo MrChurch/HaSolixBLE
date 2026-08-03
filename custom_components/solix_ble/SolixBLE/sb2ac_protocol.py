@@ -2,9 +2,10 @@
 
 This transport was reconstructed from an owned Solarbank 2 AC capture.  It
 uses the same outer AES-GCM bootstrap as the A17C5 family, but deliberately
-has its own state machine: after ``4829`` it proceeds directly to ``4021`` and
-uses ``4022`` for timezone setup.  Keeping it separate prevents changes to
-the established Solarbank 3 authentication path.
+has its own state machine. The owned capture confirms the required
+``4005``/``4805`` bootstrap step before the P-256 key exchange and uses
+``4022`` for timezone setup. Keeping it separate prevents changes to the
+established Solarbank 3 authentication path.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ class SB2ACState(str, Enum):
     WAIT_4801 = "wait_4801"
     WAIT_4803 = "wait_4803"
     WAIT_4829 = "wait_4829"
+    WAIT_4805 = "wait_4805"
     WAIT_4821 = "wait_4821"
     WAIT_4822 = "wait_4822"
     WAIT_4827 = "wait_4827"
@@ -139,9 +141,18 @@ class SB2ACHandshake:
 
             if self.state is SB2ACState.WAIT_4829 and command == b"\x48\x29":
                 self._decrypt_bootstrap(packet.payload)
+                plaintext = (
+                    b"\xa1\x04" + self._timestamp().to_bytes(4, "little")
+                    + b"\xa2\x00\xa3\x01\x20\xa4\x02\x00\xf0"
+                    + b"\xa5\x01\x40\xa6\x01\x02"
+                )
+                self.state = SB2ACState.WAIT_4805
+                return self._bootstrap_packet(b"\x40\x05", plaintext)
+
+            if self.state is SB2ACState.WAIT_4805 and command == b"\x48\x05":
+                self._decrypt_bootstrap(packet.payload)
                 self.private_key = ec.generate_private_key(ec.SECP256R1())
                 plaintext = b"\xa1\x40" + encode_public_key(self.private_key.public_key())
-                # SB2 AC has no observed 4005 stage: it proceeds directly here.
                 self.state = SB2ACState.WAIT_4821
                 return self._bootstrap_packet(b"\x40\x21", plaintext)
 

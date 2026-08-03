@@ -28,8 +28,8 @@ def _bootstrap_response(command: bytes, plaintext: bytes = b"\x00") -> bytes:
     )
 
 
-def test_sb2ac_handshake_skips_4005_and_reaches_session_ready() -> None:
-    """The owned SB2 AC capture proceeds 4829 directly to dynamic 4021."""
+def test_sb2ac_handshake_uses_4005_and_reaches_session_ready() -> None:
+    """The owned SB2 AC capture requires 4005/4805 before dynamic 4021."""
     handshake = SB2ACHandshake(ACCOUNT_ID)
 
     packet = parse_packet(handshake.start())
@@ -44,6 +44,10 @@ def test_sb2ac_handshake_skips_4005_and_reaches_session_ready() -> None:
     assert packet.command == bytes.fromhex("4029")
 
     packet = parse_packet(handshake.receive(_bootstrap_response(bytes.fromhex("4829"))))
+    assert packet.command == bytes.fromhex("4005")
+    assert handshake.state is SB2ACState.WAIT_4805
+
+    packet = parse_packet(handshake.receive(_bootstrap_response(bytes.fromhex("4805"))))
     assert packet.command == bytes.fromhex("4021")
     assert handshake.state is SB2ACState.WAIT_4821
 
