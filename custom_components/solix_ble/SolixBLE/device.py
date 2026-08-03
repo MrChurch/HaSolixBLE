@@ -1042,6 +1042,18 @@ class SolixBLEDevice:
                     )
 
                 if self._is_solarbank2ac_dynamic_transport:
+                    # The AC bootstrap replies to 4022/4027 are encrypted
+                    # session packets (03000f), not 030001 negotiation
+                    # packets.  They must complete the state machine before
+                    # normal GCM telemetry is accepted.
+                    if (
+                        self._sb2ac_handshake is not None
+                        and not self._sb2ac_handshake.session_ready
+                        and cmd in (b"\x48\x22", b"\x48\x27")
+                    ):
+                        return await self._process_sb2ac_negotiation(
+                            pattern, cmd, payload
+                        )
                     return await self._process_sb2ac_raw_telemetry(
                         pattern, cmd, payload
                     )
