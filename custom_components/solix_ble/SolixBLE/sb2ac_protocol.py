@@ -70,6 +70,10 @@ class SB2ACHandshake:
         self._last_timestamp = timestamp
         return timestamp
 
+    def next_timestamp(self) -> int:
+        """Return a new session timestamp for one or more related requests."""
+        return self._timestamp()
+
     @staticmethod
     def _bootstrap_packet(command: bytes, plaintext: bytes) -> bytes:
         return build_packet(
@@ -201,9 +205,15 @@ class SB2ACHandshake:
         """Authenticate and decrypt a post-handshake device payload."""
         return self._decrypt_session(payload)
 
-    def build_command(self, command: bytes, payload: bytes) -> bytes:
+    def build_command(
+        self, command: bytes, payload: bytes, *, timestamp: int | None = None
+    ) -> bytes:
         """Encrypt an ordinary command and add its anti-replay timestamp."""
         if not self.session_ready:
             raise ValueError("Solarbank 2 AC session is not ready")
-        plaintext = payload + b"\xfe\x05\x03" + self._timestamp().to_bytes(4, "little")
+        if timestamp is None:
+            timestamp = self._timestamp()
+        if not 0 <= timestamp <= 0xFFFFFFFF:
+            raise ValueError("timestamp does not fit in four bytes")
+        plaintext = payload + b"\xfe\x05\x03" + timestamp.to_bytes(4, "little")
         return self._session_packet(command, plaintext)

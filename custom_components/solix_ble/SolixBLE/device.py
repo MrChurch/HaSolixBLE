@@ -546,12 +546,20 @@ class SolixBLEDevice:
             _LOGGER.warning(
                 "Solarbank 2 AC post-connect: requesting 4040/4069 telemetry"
             )
-            await self._send_sb2ac_command(b"\x40\x40", b"\xa1\x01\x21")
+            # The app reuses one timestamp for this pair.  Its second 4040 and
+            # 4069 ciphertext are byte-for-byte identical apart from command
+            # framing, proving that neither request carries an extra ID field.
+            request_timestamp = handshake.next_timestamp()
+            await self._send_sb2ac_command(
+                b"\x40\x40", b"\xa1\x01\x21", timestamp=request_timestamp
+            )
             # In the owned Android-app capture, 4069 follows the second 4040
             # by about 200 ms.  Do not coalesce those writes: the E1600 AC
             # does not acknowledge back-to-back 4040/4069 requests.
             await asyncio.sleep(0.2)
-            await self._send_sb2ac_command(b"\x40\x69", b"\xa1\x01\x21")
+            await self._send_sb2ac_command(
+                b"\x40\x69", b"\xa1\x01\x21", timestamp=request_timestamp
+            )
             return
 
         if not self._is_solarbank3_transport:
@@ -1561,12 +1569,16 @@ class SolixBLEDevice:
         )
         await self._write_protocol_packet(packet)
 
-    async def _send_sb2ac_command(self, cmd: bytes, payload: bytes) -> None:
+    async def _send_sb2ac_command(
+        self, cmd: bytes, payload: bytes, *, timestamp: int | None = None
+    ) -> None:
         """Send a command through the isolated Solarbank 2 AC GCM session."""
         handshake = self._sb2ac_handshake
         if not self.negotiated or handshake is None or not handshake.session_ready:
             raise ConnectionError("Solarbank 2 AC session is not ready")
-        await self._write_protocol_packet(handshake.build_command(cmd, payload))
+        await self._write_protocol_packet(
+            handshake.build_command(cmd, payload, timestamp=timestamp)
+        )
 
     def _build_packet(self, pattern: bytes, cmd: bytes, payload: bytes) -> bytes:
         """

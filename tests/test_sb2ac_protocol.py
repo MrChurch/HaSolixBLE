@@ -85,3 +85,18 @@ def test_sb2ac_handshake_uses_4005_and_reaches_session_ready() -> None:
     assert aes_gcm_decrypt(
         handshake.session_key, handshake.session_nonce, device_info_packet.payload
     ).startswith(bytes.fromhex("a10121fe0503"))
+
+    # In the owned app capture the second 4040 and following 4069 use the
+    # exact same encrypted payload. Reuse one timestamp for this request pair.
+    request_timestamp = 0x12345678
+    status_packet = parse_packet(
+        handshake.build_command(
+            bytes.fromhex("4040"), bytes.fromhex("a10121"), timestamp=request_timestamp
+        )
+    )
+    device_info_packet = parse_packet(
+        handshake.build_command(
+            bytes.fromhex("4069"), bytes.fromhex("a10121"), timestamp=request_timestamp
+        )
+    )
+    assert status_packet.payload == device_info_packet.payload
