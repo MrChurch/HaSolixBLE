@@ -38,6 +38,7 @@ from .sb3_protocol import (
     build_telemetry_request_packet,
     load_sb3_account_id,
 )
+from .sb2ac_protocol import SB2ACHandshake, SB2ACState
 
 from .const import (
     BASE_TIMESTAMP,
@@ -182,6 +183,10 @@ class SolixBLEDevice:
         self._sb3_checkpoint_complete: bool = False
         self._sb3_identity_authenticated: bool = False
         self._sb3_transcript_path: str | None = None
+        self._sb2ac_session_ready: bool = False
+        self._sb2ac_raw_packets: dict[str, bytes] = {}
+        self._sb2ac_raw_fragments: dict[str, dict[int, bytes]] = {}
+        self._sb2ac_handshake: SB2ACHandshake | None = None
 
     def add_callback(self, function: Callable[[], None]) -> None:
         """Register a callback to be run on state updates.
@@ -212,6 +217,16 @@ class SolixBLEDevice:
             or "a17c5" in advertised_name
         )
 
+    @property
+    def _is_solarbank2ac_dynamic_transport(self) -> bool:
+        """Return True only for the separately captured Solarbank 2 AC path."""
+        return type(self).__name__.lower() == "solarbank2ac"
+
+    @property
+    def _uses_dynamic_handshake(self) -> bool:
+        """Return whether this model uses an AES-GCM dynamic handshake."""
+        return self._is_solarbank3_transport or self._is_solarbank2ac_dynamic_transport
+
     async def _write_protocol_packet(self, packet: bytes) -> None:
         """Write one application packet using the transport seen in the app."""
         if not self.connected or self._command_characteristic is None:
@@ -221,7 +236,13 @@ class SolixBLEDevice:
             )
         _LOGGER.debug(
             "TX %s packet: %s",
-            "SB3 dynamic" if self._is_solarbank3_transport else "Solix",
+            (
+                "SB3 dynamic"
+                if self._is_solarbank3_transport
+                else "SB2 AC dynamic"
+                if self._is_solarbank2ac_dynamic_transport
+                else "Solix"
+            ),
             packet.hex(),
         )
         await self._client.write_gatt_char(
@@ -254,6 +275,30 @@ class SolixBLEDevice:
                 _LOGGER.debug(
                     "SB3 negotiation already active in state %s; not resending 4001",
                     self._sb3_handshake.state,
+                )
+                return
+            await self._write_protocol_packet(packet)
+        elif self._is_solarbank2ac_dynamic_transport:
+            if self._sb2ac_handshake is None:
+                account_id = await load_sb3_account_id()
+                if account_id is None:
+                    raise BleakError(
+                        "Solarbank 2 AC requires the configured Anker account ID "
+                        "in /config/solix_sb3_account_id.txt"
+                    )
+                self._sb2ac_handshake = SB2ACHandshake(account_id=account_id)
+                _LOGGER.warning(
+                    "Loaded validated Anker account ID (%d ASCII bytes); "
+                    "starting Solarbank 2 AC dynamic session.",
+                    len(account_id.encode("utf-8")),
+                )
+                packet = self._sb2ac_handshake.start()
+            elif self._sb2ac_handshake.state is SB2ACState.IDLE:
+                packet = self._sb2ac_handshake.start()
+            else:
+                _LOGGER.debug(
+                    "SB2 AC negotiation already active in state %s; not resending 4001",
+                    self._sb2ac_handshake.state,
                 )
                 return
             await self._write_protocol_packet(packet)
@@ -363,11 +408,12 @@ class SolixBLEDevice:
                 partial(self._process_notification, self._client),
             )
 
-            if self._is_solarbank3_transport:
+            if self._uses_dynamic_handshake:
                 mtu = getattr(self._client, "mtu_size", None)
                 _LOGGER.warning(
-                    "Solarbank 3 transport ready: notifications enabled, MTU=%s; "
+                    "%s transport ready: notifications enabled, MTU=%s; "
                     "waiting before first 4001 Write Command",
+                    "Solarbank 3" if self._is_solarbank3_transport else "Solarbank 2 AC",
                     mtu,
                 )
                 # The app waited roughly 2.8 s after MTU exchange. A short
@@ -416,7 +462,7 @@ class SolixBLEDevice:
                     )
 
                     if (
-                        not self._is_solarbank3_transport
+                        not self._uses_dynamic_handshake
                         and (
                             last_activity_timestamp is None
                             or (time.time() - last_activity_timestamp)
@@ -513,6 +559,7 @@ class SolixBLEDevice:
                 handshake.next_telemetry_timestamp(),
             )
         )
+
         # Firmware information is a separate authenticated read-only query.
         # It returns 4830 and must not replace the live 4040 telemetry stream.
         _LOGGER.debug("Solarbank 3 post-connect: requesting firmware metadata")
@@ -566,7 +613,9 @@ class SolixBLEDevice:
         :returns: True/False if session has been negotiated and connected.
         """
         return self.connected and (
-            self._shared_secret is not None or self._sb3_session_ready
+            self._shared_secret is not None
+            or self._sb3_session_ready
+            or self._sb2ac_session_ready
         )
 
     @property
@@ -992,6 +1041,11 @@ class SolixBLEDevice:
                         pattern, cmd, payload
                     )
 
+                if self._is_solarbank2ac_dynamic_transport:
+                    return await self._process_sb2ac_raw_telemetry(
+                        pattern, cmd, payload
+                    )
+
                 # Non-encrypted telemetry messages
                 if cmd.hex() == "0300":
                     _LOGGER.debug("Received non-encrypted telemetry message!")
@@ -1157,7 +1211,97 @@ class SolixBLEDevice:
         """Dispatch legacy or Solarbank 3 negotiation handling."""
         if self._is_solarbank3_transport:
             return await self._process_sb3_negotiation(pattern, cmd, payload)
+        if self._is_solarbank2ac_dynamic_transport:
+            return await self._process_sb2ac_negotiation(pattern, cmd, payload)
         return await self._process_legacy_negotiation(cmd, payload)
+
+    async def _process_sb2ac_raw_telemetry(
+        self, pattern: bytes, cmd: bytes, payload: bytes
+    ) -> None:
+        """Decrypt captured Solarbank 2 AC AES-GCM telemetry independently."""
+        handshake = self._sb2ac_handshake
+        if handshake is None or not handshake.session_ready:
+            _LOGGER.debug("SB2 AC received session data before session-ready")
+            return
+
+        cmd_hex = cmd.hex()
+        complete_payload = bytes(payload)
+        if payload:
+            fragment_index = (payload[0] >> 4) & 0x0F
+            fragment_total = payload[0] & 0x0F
+            if 1 <= fragment_index <= fragment_total <= 4:
+                fragments = self._sb2ac_raw_fragments.setdefault(cmd_hex, {})
+                if fragment_index == 1:
+                    fragments.clear()
+                fragments[fragment_index] = bytes(payload[1:])
+                if len(fragments) < fragment_total:
+                    return
+                complete_payload = b"".join(
+                    fragments[index] for index in range(1, fragment_total + 1)
+                )
+                self._sb2ac_raw_fragments.pop(cmd_hex, None)
+
+        self._sb2ac_raw_packets[cmd_hex] = complete_payload
+        try:
+            plaintext = handshake.decrypt_session_payload(complete_payload)
+        except Exception:
+            _LOGGER.debug(
+                "SB2 AC message cmd=%s is not a complete AES-GCM session payload",
+                cmd_hex,
+                exc_info=True,
+            )
+            return
+
+        if _is_sb3_command_acknowledgement(plaintext):
+            _LOGGER.debug(
+                "SB2 AC command acknowledgement RX cmd=%s status=%s",
+                cmd_hex,
+                plaintext[-1:].hex(),
+            )
+            return
+        if cmd_hex == "4409":
+            # This is model metadata, not c405/c840 telemetry. Preserve it in
+            # debug logs until its SB2 AC schema is validated.
+            _LOGGER.debug("SB2 AC metadata RX plaintext=%s", plaintext.hex())
+            return
+        if not _is_complete_sb3_tlv_payload(plaintext):
+            _LOGGER.debug(
+                "SB2 AC authenticated non-telemetry RX cmd=%s plaintext=%s",
+                cmd_hex,
+                plaintext.hex(),
+            )
+            return
+        parameters = self._parse_payload(plaintext)
+        _LOGGER.debug(
+            "SB2 AC telemetry RX cmd=%s plaintext=%s parameters=%s",
+            cmd_hex,
+            plaintext.hex(),
+            self._parameters_to_str(parameters, types=True),
+        )
+        await self._process_telemetry(parameters)
+
+    async def _process_sb2ac_negotiation(
+        self, pattern: bytes, cmd: bytes, payload: bytes
+    ) -> None:
+        """Process the separate capture-derived Solarbank 2 AC handshake."""
+        if self._sb2ac_handshake is None:
+            _LOGGER.error("SB2 AC negotiation response received without local state")
+            return
+        packet = self._build_packet(pattern, cmd, payload)
+        try:
+            next_packet = self._sb2ac_handshake.receive(packet)
+        except Exception:
+            _LOGGER.exception(
+                "SB2 AC dynamic state machine rejected packet cmd=%s", cmd.hex()
+            )
+            return
+        if next_packet is not None:
+            await self._write_protocol_packet(next_packet)
+        if self._sb2ac_handshake.session_ready:
+            self._sb2ac_session_ready = True
+            _LOGGER.warning(
+                "Solarbank 2 AC dynamic session is ready; encrypted 4040 telemetry request has been sent."
+            )
 
     async def _process_sb3_negotiation(
         self, pattern: bytes, cmd: bytes, payload: bytes
@@ -1378,6 +1522,13 @@ class SolixBLEDevice:
             aes_gcm_encrypt(handshake.session_key, handshake.session_nonce, plaintext),
         )
         await self._write_protocol_packet(packet)
+
+    async def _send_sb2ac_command(self, cmd: bytes, payload: bytes) -> None:
+        """Send a command through the isolated Solarbank 2 AC GCM session."""
+        handshake = self._sb2ac_handshake
+        if not self.negotiated or handshake is None or not handshake.session_ready:
+            raise ConnectionError("Solarbank 2 AC session is not ready")
+        await self._write_protocol_packet(handshake.build_command(cmd, payload))
 
     def _build_packet(self, pattern: bytes, cmd: bytes, payload: bytes) -> bytes:
         """
@@ -1640,6 +1791,10 @@ class SolixBLEDevice:
         self._sb3_handshake = None
         self._sb3_checkpoint_complete = False
         self._sb3_transcript_path = None
+        self._sb2ac_session_ready = False
+        self._sb2ac_raw_packets = {}
+        self._sb2ac_raw_fragments = {}
+        self._sb2ac_handshake = None
         self._last_packet_timestamp = None
         self._negotiation_timestamp = None
         self._last_negotiation_request_timestamp = None

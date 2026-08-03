@@ -103,9 +103,17 @@ class Solarbank2(SolixBLEDevice):
 
     @staticmethod
     def _build_set_schedule_payload(power_w: int) -> bytes:
-        """Build the observed uniform seven-day 405e schedule payload."""
-        if not 0 <= power_w <= 800:
-            raise ValueError("power_w must be between 0 and 800 W")
+        """Build the observed uniform seven-day ``405e`` schedule payload.
+
+        Anker's Solarbank 2 app writes schedule targets in 10 W increments.
+        The Home Assistant number entity already uses that resolution, but this
+        builder is also callable directly.  Keep the same bound here so an
+        automation or future caller cannot bypass the validated wire format.
+        """
+        if not isinstance(power_w, int) or isinstance(power_w, bool):
+            raise TypeError("power_w must be an integer")
+        if not 0 <= power_w <= 800 or power_w % 10:
+            raise ValueError("power_w must be between 0 and 800 W in 10 W steps")
         schedule = (0).to_bytes(2, "little") + (1440).to_bytes(2, "little")
         schedule += power_w.to_bytes(2, "little") + bytes.fromhex("5000")
         payload = bytearray.fromhex("a10121a2020101")
@@ -559,6 +567,10 @@ class Solarbank2AC(Solarbank2):
     separate class so Home Assistant can distinguish the device explicitly
     while we collect AC-variant captures for any future field differences.
     """
+
+    async def _send_command(self, cmd: bytes, payload: bytes) -> None:
+        """Route AC controls through its separately negotiated AES-GCM session."""
+        await self._send_sb2ac_command(cmd, payload)
 
     @property
     def output_cutoff_data(self) -> SBPowerCutoff:
