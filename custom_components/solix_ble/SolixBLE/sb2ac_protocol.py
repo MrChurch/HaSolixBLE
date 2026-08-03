@@ -87,11 +87,14 @@ class SB2ACHandshake:
     def _decrypt_bootstrap(payload: bytes) -> bytes:
         return aes_gcm_decrypt(SB3_INITIAL_AES_KEY, SB3_INITIAL_NONCE, payload)
 
-    def _session_packet(self, command: bytes, plaintext: bytes) -> bytes:
+    def _session_packet(
+        self, command: bytes, plaintext: bytes, pattern: bytes = b"\x03\x00\x01"
+    ) -> bytes:
+        """Build a session-encrypted packet with its capture-derived header."""
         if self.session_key is None or self.session_nonce is None:
             raise ValueError("Solarbank 2 AC session key is unavailable")
         return build_packet(
-            b"\x03\x00\x0f",
+            pattern,
             command,
             aes_gcm_encrypt(self.session_key, self.session_nonce, plaintext),
         )
@@ -217,4 +220,4 @@ class SB2ACHandshake:
         if not 0 <= timestamp <= 0xFFFFFFFF:
             raise ValueError("timestamp does not fit in four bytes")
         plaintext = payload + b"\xfe\x05\x03" + timestamp.to_bytes(4, "little")
-        return self._session_packet(command, plaintext)
+        return self._session_packet(command, plaintext, b"\x03\x00\x0f")

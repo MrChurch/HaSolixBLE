@@ -89,6 +89,7 @@ def test_sb2ac_handshake_uses_4005_and_reaches_session_ready() -> None:
         )
     )
     assert packet.command == bytes.fromhex("4022")
+    assert packet.pattern == bytes.fromhex("030001")
     assert handshake.session_key is not None
     assert handshake.session_nonce is not None
 
@@ -99,9 +100,11 @@ def test_sb2ac_handshake_uses_4005_and_reaches_session_ready() -> None:
     )
     packet = parse_packet(handshake.receive(session_response(bytes.fromhex("4822"))))
     assert packet.command == bytes.fromhex("4027")
+    assert packet.pattern == bytes.fromhex("030001")
     packet = parse_packet(handshake.receive(session_response(bytes.fromhex("4827"))))
     assert handshake.session_ready
     assert packet.command == bytes.fromhex("4040")
+    assert packet.pattern == bytes.fromhex("03000f")
     assert aes_gcm_decrypt(
         handshake.session_key, handshake.session_nonce, packet.payload
     ).startswith(bytes.fromhex("a10121fe0503"))
@@ -110,6 +113,7 @@ def test_sb2ac_handshake_uses_4005_and_reaches_session_ready() -> None:
         handshake.build_command(bytes.fromhex("4069"), bytes.fromhex("a10121"))
     )
     assert device_info_packet.command == bytes.fromhex("4069")
+    assert device_info_packet.pattern == bytes.fromhex("03000f")
     assert aes_gcm_decrypt(
         handshake.session_key, handshake.session_nonce, device_info_packet.payload
     ).startswith(bytes.fromhex("a10121fe0503"))
