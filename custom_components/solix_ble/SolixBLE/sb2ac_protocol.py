@@ -10,7 +10,7 @@ established Solarbank 3 authentication path.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 import time
@@ -55,8 +55,6 @@ class SB2ACHandshake:
     private_key: ec.EllipticCurvePrivateKey | None = None
     session_key: bytes | None = None
     session_nonce: bytes | None = None
-    _last_timestamp: int = field(default=0, init=False)
-
     def __post_init__(self) -> None:
         self.account_id = validate_sb3_account_id(self.account_id)
 
@@ -66,9 +64,12 @@ class SB2ACHandshake:
         return self.state is SB2ACState.SESSION_READY
 
     def _timestamp(self) -> int:
-        timestamp = max(int(time.time()), self._last_timestamp + 1)
-        self._last_timestamp = timestamp
-        return timestamp
+        """Return the app's wall-clock Unix-second timestamp.
+
+        The owned Android capture reuses the same timestamp for the rapid
+        4001/4003/4029/4005 bootstrap sequence. This is not a packet counter.
+        """
+        return int(time.time())
 
     def next_timestamp(self) -> int:
         """Return a new session timestamp for one or more related requests."""

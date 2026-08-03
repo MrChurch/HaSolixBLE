@@ -1,5 +1,7 @@
 """Solarbank 2 AC dynamic-handshake tests."""
 
+from unittest.mock import patch
+
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from custom_components.solix_ble.SolixBLE.sb2ac_protocol import (
@@ -26,6 +28,32 @@ def _bootstrap_response(command: bytes, plaintext: bytes = b"\x00") -> bytes:
         command,
         aes_gcm_encrypt(SB3_INITIAL_AES_KEY, SB3_INITIAL_NONCE, plaintext),
     )
+
+
+def test_sb2ac_bootstrap_reuses_wall_clock_timestamp() -> None:
+    """Rapid bootstrap commands use one Unix-second timestamp like the app."""
+    handshake = SB2ACHandshake(ACCOUNT_ID)
+    with patch(
+        "custom_components.solix_ble.SolixBLE.sb2ac_protocol.time.time",
+        return_value=0x12345678,
+    ):
+        first = parse_packet(handshake.start())
+        third = parse_packet(
+            handshake.receive(_bootstrap_response(bytes.fromhex("4801")))
+        )
+        account = parse_packet(
+            handshake.receive(_bootstrap_response(bytes.fromhex("4803")))
+        )
+        fifth = parse_packet(
+            handshake.receive(_bootstrap_response(bytes.fromhex("4829")))
+        )
+
+    timestamp = (0x12345678).to_bytes(4, "little")
+    for packet in (first, third, account, fifth):
+        plaintext = aes_gcm_decrypt(
+            SB3_INITIAL_AES_KEY, SB3_INITIAL_NONCE, packet.payload
+        )
+        assert plaintext[2:6] == timestamp
 
 
 def test_sb2ac_handshake_uses_4005_and_reaches_session_ready() -> None:
