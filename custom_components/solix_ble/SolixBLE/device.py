@@ -547,6 +547,10 @@ class SolixBLEDevice:
                 "Solarbank 2 AC post-connect: requesting 4040/4069 telemetry"
             )
             await self._send_sb2ac_command(b"\x40\x40", b"\xa1\x01\x21")
+            # In the owned Android-app capture, 4069 follows the second 4040
+            # by about 200 ms.  Do not coalesce those writes: the E1600 AC
+            # does not acknowledge back-to-back 4040/4069 requests.
+            await asyncio.sleep(0.2)
             await self._send_sb2ac_command(b"\x40\x69", b"\xa1\x01\x21")
             return
 
