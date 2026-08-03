@@ -529,10 +529,12 @@ class SolixBLEDevice:
         :class:`~SolixBLE.devices.c1000g2.C1000G2`).
         """
         if self._is_solarbank2ac_dynamic_transport:
-            # The owned SB2 AC captures contain a second 4040 after the
-            # handshake has completed.  The inline request sent while
-            # processing 4827 alone leaves the session open without a
-            # telemetry response on the E1600 AC.
+            # The owned Android-app capture sends this pair immediately after
+            # the 4827 acknowledgement: a second 4040 followed by 4069. Both
+            # use the ordinary read-only status payload.  The device answers
+            # 4069 with 4869 before the c840/c405/4409 data observed in that
+            # capture. Keep this deliberately isolated from the validated
+            # SB3 path.
             handshake = self._sb2ac_handshake
             if handshake is None or not handshake.session_ready:
                 _LOGGER.warning(
@@ -541,8 +543,11 @@ class SolixBLEDevice:
                 )
                 return
 
-            _LOGGER.warning("Solarbank 2 AC post-connect: re-arming 4040 telemetry")
+            _LOGGER.warning(
+                "Solarbank 2 AC post-connect: requesting 4040/4069 telemetry"
+            )
             await self._send_sb2ac_command(b"\x40\x40", b"\xa1\x01\x21")
+            await self._send_sb2ac_command(b"\x40\x69", b"\xa1\x01\x21")
             return
 
         if not self._is_solarbank3_transport:

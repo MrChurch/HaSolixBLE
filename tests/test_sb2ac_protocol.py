@@ -77,3 +77,11 @@ def test_sb2ac_handshake_uses_4005_and_reaches_session_ready() -> None:
     assert aes_gcm_decrypt(
         handshake.session_key, handshake.session_nonce, packet.payload
     ).startswith(bytes.fromhex("a10121fe0503"))
+
+    device_info_packet = parse_packet(
+        handshake.build_command(bytes.fromhex("4069"), bytes.fromhex("a10121"))
+    )
+    assert device_info_packet.command == bytes.fromhex("4069")
+    assert aes_gcm_decrypt(
+        handshake.session_key, handshake.session_nonce, device_info_packet.payload
+    ).startswith(bytes.fromhex("a10121fe0503"))
