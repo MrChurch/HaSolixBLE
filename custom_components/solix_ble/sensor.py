@@ -76,6 +76,13 @@ async def async_setup_entry(
                 ),
                 SolixSensorEntity(
                     device,
+                    "Average Battery Percentage",
+                    "%",
+                    "battery_percentage_aggregate",
+                    SensorDeviceClass.BATTERY,
+                ),
+                SolixSensorEntity(
+                    device,
                     "Serial Number",
                     None,
                     "serial_number",
