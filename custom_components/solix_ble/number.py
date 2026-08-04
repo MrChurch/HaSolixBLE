@@ -53,6 +53,11 @@ class Solarbank2ACScheduleNumber(RestoreEntity, NumberEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        self._device.add_callback(self._state_change_callback)
+        live_target = self._device.sync_schedule_power_target()
+        if live_target is not None:
+            self._attr_native_value = live_target
+            return
         last_state = await self.async_get_last_state()
         if last_state is None:
             return
@@ -61,8 +66,21 @@ class Solarbank2ACScheduleNumber(RestoreEntity, NumberEntity):
         except ValueError:
             return
         if 0 <= value <= 800 and value % 10 == 0:
-            self._device.set_schedule_power_target(value)
+            # A cached HA state is only a fallback until c5 telemetry arrives.
+            self._device.set_schedule_power_target(value, staged=False)
             self._attr_native_value = value
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister the live schedule callback."""
+        self._device.remove_callback(self._state_change_callback)
+
+    def _state_change_callback(self) -> None:
+        """Refresh the slider from the live plan without losing user staging."""
+        live_target = self._device.sync_schedule_power_target()
+        if live_target is None:
+            return
+        self._attr_native_value = live_target
+        self.async_write_ha_state()
 
     async def async_set_native_value(self, value: float) -> None:
         target = int(round(value / 10) * 10)

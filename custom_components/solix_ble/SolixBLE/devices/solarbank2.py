@@ -587,9 +587,53 @@ class Solarbank2AC(Solarbank2):
         "c4",
     )
 
+    def __init__(self, ble_device) -> None:
+        """Initialize AC telemetry state without staging a schedule override."""
+        super().__init__(ble_device)
+        self._schedule_power_target_staged = False
+
+    @property
+    def schedule_power_target(self) -> int:
+        """Return the staged target or the live A17C0 custom-plan value."""
+        if (
+            not self._schedule_power_target_staged
+            and self._data is not None
+            and "c5" in self._data
+        ):
+            return self.schedule_power
+        return self._schedule_power_target
+
+    def set_schedule_power_target(self, power_w: int, *, staged: bool = True) -> None:
+        """Stage an AC schedule target without changing the device yet."""
+        super().set_schedule_power_target(power_w)
+        self._schedule_power_target_staged = staged
+
+    def sync_schedule_power_target(self) -> int | None:
+        """Use live ``c5`` telemetry as the initial custom-plan slider value."""
+        if (
+            self._schedule_power_target_staged
+            or self._data is None
+            or "c5" not in self._data
+        ):
+            return None
+        self._schedule_power_target_staged = False
+        self._schedule_power_target = self.schedule_power
+        return self._schedule_power_target
+
+    @property
+    def schedule_power(self) -> int:
+        """Return the active A17C0 custom-plan output from ``c5``."""
+        return round(self._parse_float("c5"))
+
     async def _send_command(self, cmd: bytes, payload: bytes) -> None:
         """Route AC controls through its separately negotiated AES-GCM session."""
         await self._send_sb2ac_command(cmd, payload)
+
+    async def set_schedule(self, power_w: int) -> None:
+        """Write the uniform plan and resume following its reported value."""
+        await super().set_schedule(power_w)
+        self._schedule_power_target = power_w
+        self._schedule_power_target_staged = False
 
     @property
     def sb2ac_telemetry_candidates(self) -> dict[str, float]:
