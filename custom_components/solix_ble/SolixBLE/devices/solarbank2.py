@@ -7,7 +7,6 @@
 import logging
 import os
 import time
-import zlib
 from enum import Enum
 
 from ..const import (
@@ -705,62 +704,6 @@ class Solarbank2AC(Solarbank2):
         self._max_load_target = load.value
         self._max_load_target_staged = False
 
-    @staticmethod
-    def _build_set_usage_mode_payload(custom_mode: bool, power_w: int) -> bytes:
-        """Build the app-shaped A17C0 ``405e`` ``setTacticsTime`` payload.
-
-        This is deliberately *not* the shorter ``setBackPower`` payload used
-        by other Solarbank families.  A controlled E1600 AC app capture shows
-        that switching Custom/Self consumption sends a 112-byte
-        ``setTacticsTime`` request: ``a2=1`` selects Custom, ``a2=2`` selects
-        Self consumption, followed by fourteen seven-byte time ranges and a
-        CRC-32 field ``fa0503``.  The 14 ranges are two entries for each day
-        of the week.  Preserve the active all-day target in the first entry
-        and explicitly leave the second one inactive, rather than changing
-        unrelated BackPower settings.
-        """
-        if not 0 <= power_w <= 800 or power_w % 50:
-            raise ValueError("Schedule power must be between 0 and 800 W in 50 W steps")
-
-        mode = 1 if custom_mode else 2
-        active_range = (
-            (0).to_bytes(2, "little")
-            + (1440).to_bytes(2, "little")
-            + power_w.to_bytes(2, "little")
-            # The APK's DischargeTimeModel defaults this field to 160.
-            + bytes((160,))
-        )
-        inactive_range = bytes(7)
-        payload = bytearray.fromhex(f"a10121a20201{mode:02x}")
-        for _day in range(7):
-            payload += active_range + inactive_range
-
-        # The app calculates CRC-32 over the header plus all fourteen ranges.
-        # CmdUtil.intToList4 serialises the result little-endian; the map
-        # serializer adds the typed ``fa0503`` field prefix.
-        payload += bytes.fromhex("fa0503") + zlib.crc32(payload).to_bytes(
-            4, "little"
-        )
-        assert len(payload) == 112
-        return bytes(payload)
-
-    async def set_usage_mode(self, custom_mode: bool) -> None:
-        """Switch between Custom and Self consumption on Solarbank 2 AC."""
-        # A mode switch carries the complete schedule structure.  Keep the
-        # staged/live target instead of replacing the existing Custom plan.
-        payload = self._build_set_usage_mode_payload(
-            custom_mode, self.schedule_power_target
-        )
-        _LOGGER.debug(
-            "Solarbank 2 AC set usage mode: target=%s payload=%s",
-            "Custom" if custom_mode else "Self consumption",
-            payload.hex(),
-        )
-        await self._send_command(
-            CMD_SB2_SET_SCHEDULE,
-            payload,
-        )
-
     @property
     def sb2ac_telemetry_candidates(self) -> dict[str, float]:
         """Return unlabelled A17C0 float fields for controlled correlation.
@@ -831,15 +774,14 @@ class Solarbank2AC(Solarbank2):
     def usage_mode(self) -> str:
         """Return the A17C0 operating mode reported by ``a4``.
 
-        ``a4=1`` has been observed while the Custom plan is active.  The
-        A17C0 also reports ``a4=2`` while it rejects or rolls back a mode
-        change, so that value must not be presented as Self consumption.
-        Until an app capture correlates the confirmed Self consumption state
-        with a readback field, unknown values intentionally remain Unknown
-        rather than producing a misleading selection in Home Assistant.
+        ``a4=1`` is reported while the Custom plan is active.  A controlled
+        app-side switch to Self consumption reports ``a4=2`` in the next
+        A17C0 ``c405`` telemetry frame.  This is read-only state mapping; the
+        corresponding 30-slot app write is not yet exposed as a HA control.
         """
         return {
             1: "Custom",
+            2: "Self consumption",
         }.get(self._parse_int("a4", begin=1), "Unknown")
 
     @property

@@ -68,6 +68,8 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
     assert device.max_load_target == 600
 
     device._data["a4"] = b"\x01\x02"
+    assert device.usage_mode == "Self consumption"
+    device._data["a4"] = b"\x01\x03"
     assert device.usage_mode == "Unknown"
 
 
@@ -80,19 +82,3 @@ def test_sb2ac_rounds_live_plan_value_to_the_ble_control_grid() -> None:
 
     assert device.schedule_power == 450
     assert device.sync_schedule_power_target() == 450
-
-
-def test_sb2ac_builds_usage_mode_switch_payload() -> None:
-    """A17C0 uses the captured full ``setTacticsTime`` 405e structure."""
-    custom = Solarbank2AC._build_set_usage_mode_payload(True, 100)
-    self_consumption = Solarbank2AC._build_set_usage_mode_payload(False, 100)
-
-    assert custom.startswith(bytes.fromhex("a10121a2020101"))
-    assert self_consumption.startswith(bytes.fromhex("a10121a2020102"))
-    assert custom[7:21] == bytes.fromhex(
-        "0000a0056400a0000000000000"
-    )
-    assert self_consumption[7:21] == custom[7:21]
-    assert custom[-7:] == bytes.fromhex("fa050374b88929")
-    assert self_consumption[-7:] == bytes.fromhex("fa050373bc57ed")
-    assert len(custom) == len(self_consumption) == 112
