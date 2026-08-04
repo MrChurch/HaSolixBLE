@@ -90,4 +90,6 @@ def test_sb2ac_builds_usage_mode_switch_payload() -> None:
     assert self_consumption[15:29] == bytes.fromhex(
         "a6050300000000a7050300000000"
     )
+    assert custom[-7:] == bytes.fromhex("fd0503b3b0c254")
+    assert self_consumption[-7:] == bytes.fromhex("fd05035b6b39ed")
     assert len(custom) == len(self_consumption) == 36

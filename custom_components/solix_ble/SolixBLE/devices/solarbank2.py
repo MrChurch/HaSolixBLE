@@ -6,6 +6,7 @@
 
 import os
 import time
+import zlib
 from enum import Enum
 
 from ..const import (
@@ -704,9 +705,12 @@ class Solarbank2AC(Solarbank2):
             f"a10121a2020104a3020100a40201{switch:02x}"
             "a6050300000000a7050300000000"
         )
-        # The app includes an opaque 32-bit request value in ``fd``.  The
-        # existing accepted 405e schedule writer uses the same fresh value.
-        payload += bytes.fromhex("fd0503") + os.urandom(4)
+        # ``fd`` is not an opaque token: setBackPower calculates CRC-32 over
+        # the sorted setting fields and CmdUtil.intToList4 writes it little
+        # endian.  A random value makes the device silently reject the write.
+        payload += bytes.fromhex("fd0503") + zlib.crc32(payload).to_bytes(
+            4, "little"
+        )
         return bytes(payload)
 
     async def set_usage_mode(self, custom_mode: bool) -> None:
