@@ -77,3 +77,17 @@ def test_sb2ac_rounds_live_plan_value_to_the_ble_control_grid() -> None:
 
     assert device.schedule_power == 450
     assert device.sync_schedule_power_target() == 450
+
+
+def test_sb2ac_builds_usage_mode_switch_payload() -> None:
+    """The A17C0 mode flag is encoded in the APK-derived 405e payload."""
+    custom = Solarbank2AC._build_set_usage_mode_payload(True)
+    self_consumption = Solarbank2AC._build_set_usage_mode_payload(False)
+
+    assert custom.startswith(bytes.fromhex("a10121a2020104a3020100a4020101"))
+    assert self_consumption.startswith(bytes.fromhex("a10121a2020104a3020100a4020100"))
+    assert custom[15:29] == bytes.fromhex("a6050300000000a7050300000000")
+    assert self_consumption[15:29] == bytes.fromhex(
+        "a6050300000000a7050300000000"
+    )
+    assert len(custom) == len(self_consumption) == 36

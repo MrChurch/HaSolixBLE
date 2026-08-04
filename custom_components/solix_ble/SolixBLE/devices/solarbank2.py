@@ -689,6 +689,33 @@ class Solarbank2AC(Solarbank2):
         self._max_load_target = load.value
         self._max_load_target_staged = False
 
+    @staticmethod
+    def _build_set_usage_mode_payload(custom_mode: bool) -> bytes:
+        """Build the A17C0 ``405e`` BackPower mode-switch payload.
+
+        Anker's A17C1/A17C0 app controller calls this ``setBackPower``.  Its
+        default ``BackPowerParamData`` uses mode type 4, a zero auxiliary
+        value and a single 00:00--00:00 range; ``a4`` is the mode switch.
+        Telemetry reports that same flag as ``a4=1`` for Custom and ``a4=0``
+        for Self consumption.
+        """
+        switch = 1 if custom_mode else 0
+        payload = bytearray.fromhex(
+            f"a10121a2020104a3020100a40201{switch:02x}"
+            "a6050300000000a7050300000000"
+        )
+        # The app includes an opaque 32-bit request value in ``fd``.  The
+        # existing accepted 405e schedule writer uses the same fresh value.
+        payload += bytes.fromhex("fd0503") + os.urandom(4)
+        return bytes(payload)
+
+    async def set_usage_mode(self, custom_mode: bool) -> None:
+        """Switch between Custom and Self consumption on Solarbank 2 AC."""
+        await self._send_command(
+            CMD_SB2_SET_SCHEDULE,
+            self._build_set_usage_mode_payload(custom_mode),
+        )
+
     @property
     def sb2ac_telemetry_candidates(self) -> dict[str, float]:
         """Return unlabelled A17C0 float fields for controlled correlation.

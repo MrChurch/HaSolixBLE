@@ -9,7 +9,15 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from .SolixBLE import C300, C800, C1000, PortStatus, PrimeCharger160w, SolixBLEDevice
+from .SolixBLE import (
+    C300,
+    C800,
+    C1000,
+    PortStatus,
+    PrimeCharger160w,
+    Solarbank2AC,
+    SolixBLEDevice,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +48,12 @@ async def async_setup_entry(
                 "turn_ac_off",
             )
         )
+
+    # Solarbank 2 AC maps the A17C0 usage-mode flag to Custom (on) and
+    # Self consumption (off).  This control is separate from the SB3
+    # schedule-mode selector and must never be exposed for other models.
+    if type(device) is Solarbank2AC:
+        switches.append(Solarbank2ACUsageModeSwitch(device))
 
     # Support for DC output switch with status
     if type(device) in [C300]:
@@ -120,6 +134,48 @@ async def async_setup_entry(
         )
 
     async_add_entities(switches)
+
+
+class Solarbank2ACUsageModeSwitch(SwitchEntity):
+    """Switch the Solarbank 2 AC between Custom and Self consumption."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Custom mode"
+    _attr_icon = "mdi:calendar-sync"
+
+    def __init__(self, device: Solarbank2AC) -> None:
+        self._device = device
+        self._attr_unique_id = f"{device.address}_custom_mode"
+        self._attr_device_info = DeviceInfo(
+            name=device.name,
+            connections={(CONNECTION_BLUETOOTH, device.address)},
+        )
+
+    @property
+    def available(self) -> bool:
+        return self._device.negotiated
+
+    @property
+    def is_on(self) -> bool:
+        """Return true when telemetry reports the Custom mode."""
+        return self._device.usage_mode == "Custom"
+
+    async def async_added_to_hass(self) -> None:
+        self._device.add_callback(self._state_change_callback)
+
+    async def async_will_remove_from_hass(self) -> None:
+        self._device.remove_callback(self._state_change_callback)
+
+    def _state_change_callback(self) -> None:
+        self.async_write_ha_state()
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Activate Custom mode."""
+        await self._device.set_usage_mode(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Activate Self consumption mode."""
+        await self._device.set_usage_mode(False)
 
 
 class SolixSwitchEntity(SwitchEntity):
