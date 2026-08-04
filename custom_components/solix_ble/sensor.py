@@ -59,6 +59,37 @@ async def async_setup_entry(
     device = config_entry.runtime_data
     sensors: list[SolixSensorEntity] = []
 
+    # Solarbank 2 AC uses the new encrypted A17C0 telemetry layout, not the
+    # legacy Solarbank 2 layout used below.  The following two fields are
+    # confirmed by the owned BLE capture: a2 is the ASCII serial number and
+    # a3 is the one-byte battery state of charge.  Do not register legacy SB2
+    # entities here: their integer decoders turn typed A17C0 values into
+    # physically impossible power and energy readings.
+    #
+    # Controls are intentionally defined in their own platforms and therefore
+    # remain available while the rest of the read-only telemetry is mapped.
+    if type(device) is Solarbank2AC:
+        sensors.extend(
+            [
+                SolixSensorEntity(
+                    device,
+                    "Battery Percentage",
+                    "%",
+                    "battery_percentage",
+                    SensorDeviceClass.BATTERY,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "Serial Number",
+                    None,
+                    "serial_number",
+                    state_class=None,
+                ),
+            ]
+        )
+        async_add_entities(sensors)
+        return
+
     # Charging status sensor
     if type(device) in [C300, C300DC]:
         sensors.append(

@@ -560,13 +560,17 @@ class Solarbank2(SolixBLEDevice):
 
 
 class Solarbank2AC(Solarbank2):
-    """Solarbank 2 AC model using the Solarbank 2 telemetry schema.
+    """Solarbank 2 AC model with its own authenticated telemetry schema.
 
-    The AC variant currently exposes the same authenticated BLE telemetry
-    fields and controls as the existing Solarbank 2 implementation.  It is a
-    separate class so Home Assistant can distinguish the device explicitly
-    while we collect AC-variant captures for any future field differences.
+    The AC variant shares control commands with Solarbank 2, but its ``c405``
+    telemetry uses a different field layout.  In particular, applying the
+    original Solarbank 2 integer divisors to its typed values creates
+    impossible power and energy values.  The Home Assistant sensor platform
+    therefore exposes only independently verified fields until the remaining
+    layout has been captured and mapped.
     """
+
+    _DISPLAY_NAME = "Solarbank 2 E1600 AC"
 
     async def _send_command(self, cmd: bytes, payload: bytes) -> None:
         """Route AC controls through its separately negotiated AES-GCM session."""
