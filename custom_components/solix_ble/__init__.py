@@ -37,6 +37,11 @@ type SolixBLEConfigEntry = ConfigEntry[SolixBLEDevice]
 
 
 _SB2AC_REMOVED_LEGACY_SENSOR_ATTRIBUTES = {
+    "output_energy",
+    "output_cutoff_data",
+    "input_cutoff_data",
+    "max_load",
+    "light_mode",
     "solar_power_in",
     "solar_pv_1_power_in",
     "solar_pv_2_power_in",
@@ -84,12 +89,12 @@ def get_power_station_class(model: Models) -> SolixBLEDevice:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Remove Solarbank 2 AC entities created by the legacy SB2 decoder."""
-    if entry.version > 2:
+    """Remove obsolete Solarbank 2 AC entities from the registry."""
+    if entry.version > 3:
         return False
 
     if (
-        entry.version < 2
+        entry.version < 3
         and entry.data.get("model") == Models.SOLARBANK_2_AC.value
         and entry.unique_id is not None
     ):
@@ -103,8 +108,8 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if entity.unique_id in obsolete_unique_ids:
                 registry.async_remove(entity.entity_id)
 
-    if entry.version < 2:
-        hass.config_entries.async_update_entry(entry, version=2)
+    if entry.version < 3:
+        hass.config_entries.async_update_entry(entry, version=3)
 
     return True
 
