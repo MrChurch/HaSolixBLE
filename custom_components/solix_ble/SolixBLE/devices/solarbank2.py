@@ -706,31 +706,51 @@ class Solarbank2AC(Solarbank2):
         self._max_load_target_staged = False
 
     @staticmethod
-    def _build_set_usage_mode_payload(custom_mode: bool) -> bytes:
-        """Build the A17C0 ``405e`` BackPower mode-switch payload.
+    def _build_set_usage_mode_payload(custom_mode: bool, power_w: int) -> bytes:
+        """Build the app-shaped A17C0 ``405e`` ``setTacticsTime`` payload.
 
-        Anker's A17C1/A17C0 app controller calls this ``setBackPower``.  Its
-        default ``BackPowerParamData`` uses mode type 4, a zero auxiliary
-        value and a single 00:00--00:00 range; ``a4`` is the mode switch.
-        Telemetry reports that same flag as ``a4=1`` for Custom and ``a4=0``
-        for Self consumption.
+        This is deliberately *not* the shorter ``setBackPower`` payload used
+        by other Solarbank families.  A controlled E1600 AC app capture shows
+        that switching Custom/Self consumption sends a 112-byte
+        ``setTacticsTime`` request: ``a2=1`` selects Custom, ``a2=2`` selects
+        Self consumption, followed by fourteen seven-byte time ranges and a
+        CRC-32 field ``fa0503``.  The 14 ranges are two entries for each day
+        of the week.  Preserve the active all-day target in the first entry
+        and explicitly leave the second one inactive, rather than changing
+        unrelated BackPower settings.
         """
-        switch = 1 if custom_mode else 0
-        payload = bytearray.fromhex(
-            f"a10121a2020104a3020100a40201{switch:02x}"
-            "a6050300000000a7050300000000"
+        if not 0 <= power_w <= 800 or power_w % 50:
+            raise ValueError("Schedule power must be between 0 and 800 W in 50 W steps")
+
+        mode = 1 if custom_mode else 2
+        active_range = (
+            (0).to_bytes(2, "little")
+            + (1440).to_bytes(2, "little")
+            + power_w.to_bytes(2, "little")
+            # The APK's DischargeTimeModel defaults this field to 160.
+            + bytes((160,))
         )
-        # ``fd`` is not an opaque token: setBackPower calculates CRC-32 over
-        # the sorted setting fields and CmdUtil.intToList4 writes it little
-        # endian.  A random value makes the device silently reject the write.
-        payload += bytes.fromhex("fd0503") + zlib.crc32(payload).to_bytes(
+        inactive_range = bytes(7)
+        payload = bytearray.fromhex(f"a10121a20201{mode:02x}")
+        for _day in range(7):
+            payload += active_range + inactive_range
+
+        # The app calculates CRC-32 over the header plus all fourteen ranges.
+        # CmdUtil.intToList4 serialises the result little-endian; the map
+        # serializer adds the typed ``fa0503`` field prefix.
+        payload += bytes.fromhex("fa0503") + zlib.crc32(payload).to_bytes(
             4, "little"
         )
+        assert len(payload) == 112
         return bytes(payload)
 
     async def set_usage_mode(self, custom_mode: bool) -> None:
         """Switch between Custom and Self consumption on Solarbank 2 AC."""
-        payload = self._build_set_usage_mode_payload(custom_mode)
+        # A mode switch carries the complete schedule structure.  Keep the
+        # staged/live target instead of replacing the existing Custom plan.
+        payload = self._build_set_usage_mode_payload(
+            custom_mode, self.schedule_power_target
+        )
         _LOGGER.debug(
             "Solarbank 2 AC set usage mode: target=%s payload=%s",
             "Custom" if custom_mode else "Self consumption",

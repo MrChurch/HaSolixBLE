@@ -83,16 +83,16 @@ def test_sb2ac_rounds_live_plan_value_to_the_ble_control_grid() -> None:
 
 
 def test_sb2ac_builds_usage_mode_switch_payload() -> None:
-    """The A17C0 mode flag is encoded in the APK-derived 405e payload."""
-    custom = Solarbank2AC._build_set_usage_mode_payload(True)
-    self_consumption = Solarbank2AC._build_set_usage_mode_payload(False)
+    """A17C0 uses the captured full ``setTacticsTime`` 405e structure."""
+    custom = Solarbank2AC._build_set_usage_mode_payload(True, 100)
+    self_consumption = Solarbank2AC._build_set_usage_mode_payload(False, 100)
 
-    assert custom.startswith(bytes.fromhex("a10121a2020104a3020100a4020101"))
-    assert self_consumption.startswith(bytes.fromhex("a10121a2020104a3020100a4020100"))
-    assert custom[15:29] == bytes.fromhex("a6050300000000a7050300000000")
-    assert self_consumption[15:29] == bytes.fromhex(
-        "a6050300000000a7050300000000"
+    assert custom.startswith(bytes.fromhex("a10121a2020101"))
+    assert self_consumption.startswith(bytes.fromhex("a10121a2020102"))
+    assert custom[7:21] == bytes.fromhex(
+        "0000a0056400a0000000000000"
     )
-    assert custom[-7:] == bytes.fromhex("fd0503b3b0c254")
-    assert self_consumption[-7:] == bytes.fromhex("fd05035b6b39ed")
-    assert len(custom) == len(self_consumption) == 36
+    assert self_consumption[7:21] == custom[7:21]
+    assert custom[-7:] == bytes.fromhex("fa050374b88929")
+    assert self_consumption[-7:] == bytes.fromhex("fa050373bc57ed")
+    assert len(custom) == len(self_consumption) == 112
