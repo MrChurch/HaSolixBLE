@@ -50,7 +50,6 @@ _SB2AC_REMOVED_LEGACY_SENSOR_ATTRIBUTES = {
     "pv_yield",
     "grid_to_home_power",
     "pv_to_grid_power",
-    "usage_mode",
     "custom_mode",
 }
 

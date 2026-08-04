@@ -123,6 +123,13 @@ async def async_setup_entry(
                     "charge_limit",
                     SensorDeviceClass.BATTERY,
                 ),
+                SolixSensorEntity(
+                    device,
+                    "Usage mode",
+                    None,
+                    "usage_mode",
+                    state_class=None,
+                ),
             ]
         )
         async_add_entities(sensors)
