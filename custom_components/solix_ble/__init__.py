@@ -50,6 +50,8 @@ _SB2AC_REMOVED_LEGACY_SENSOR_ATTRIBUTES = {
     "pv_yield",
     "grid_to_home_power",
     "pv_to_grid_power",
+    "usage_mode",
+    "custom_mode",
 }
 
 
@@ -93,25 +95,27 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry.version > 3:
         return False
 
-    if (
-        entry.version < 3
-        and entry.data.get("model") == Models.SOLARBANK_2_AC.value
-        and entry.unique_id is not None
-    ):
-        registry = er.async_get(hass)
-        unique_id_prefix = f"{entry.unique_id.upper()}_"
-        obsolete_unique_ids = {
-            f"{unique_id_prefix}{attribute}"
-            for attribute in _SB2AC_REMOVED_LEGACY_SENSOR_ATTRIBUTES
-        }
-        for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-            if entity.unique_id in obsolete_unique_ids:
-                registry.async_remove(entity.entity_id)
+    if entry.version < 3:
+        _remove_sb2ac_obsolete_entities(hass, entry)
 
     if entry.version < 3:
         hass.config_entries.async_update_entry(entry, version=3)
 
     return True
+
+
+def _remove_sb2ac_obsolete_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove unsupported SB2 AC entities, including prior migration misses."""
+    if entry.data.get("model") != Models.SOLARBANK_2_AC.value:
+        return
+
+    registry = er.async_get(hass)
+    obsolete_suffixes = {
+        f"_{attribute}" for attribute in _SB2AC_REMOVED_LEGACY_SENSOR_ATTRIBUTES
+    }
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity.unique_id.lower().endswith(tuple(obsolete_suffixes)):
+            registry.async_remove(entity.entity_id)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SolixBLEConfigEntry) -> bool:
@@ -120,6 +124,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolixBLEConfigEntry) -> 
     assert entry.unique_id is not None
     address = entry.unique_id.upper()
     model = Models(entry.data["model"])
+
+    # Some installations had already reached the previous config-entry
+    # version before the full obsolete-entity list existed.  Run this small,
+    # exact cleanup on every SB2 AC setup so those stale registry entries do
+    # not survive indefinitely.
+    _remove_sb2ac_obsolete_entities(hass, entry)
 
     ble_device = async_ble_device_from_address(hass, address, connectable=True)
 

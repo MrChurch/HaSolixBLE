@@ -31,7 +31,55 @@ async def async_setup_entry(
             [Solarbank3MaxLoadSelect(device), Solarbank3ScheduleModeSelect(device)]
         )
     elif isinstance(device, Solarbank2AC):
-        async_add_entities([Solarbank2ACMaxLoadSelect(device)])
+        async_add_entities(
+            [Solarbank2ACMaxLoadSelect(device), Solarbank2ACUsageModeSelect(device)]
+        )
+
+
+class Solarbank2ACUsageModeSelect(SelectEntity):
+    """Select the active Solarbank 2 AC usage mode."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Usage mode"
+    _attr_icon = "mdi:home-lightning-bolt"
+    _attr_options = ["Self consumption", "Custom"]
+
+    def __init__(self, device: Solarbank2AC) -> None:
+        self._device = device
+        self._attr_unique_id = f"{device.address}_usage_mode"
+        self._attr_device_info = DeviceInfo(
+            name=device.name,
+            connections={(CONNECTION_BLUETOOTH, device.address)},
+        )
+        self._attr_current_option = device.usage_mode
+
+    @property
+    def available(self) -> bool:
+        return self._device.negotiated
+
+    async def async_added_to_hass(self) -> None:
+        self._device.add_callback(self._state_change_callback)
+
+    async def async_will_remove_from_hass(self) -> None:
+        self._device.remove_callback(self._state_change_callback)
+
+    def _state_change_callback(self) -> None:
+        """Use device telemetry as the source of truth for the selection."""
+        usage_mode = self._device.usage_mode
+        self._attr_current_option = (
+            usage_mode if usage_mode in self._attr_options else None
+        )
+        self.async_write_ha_state()
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in self._attr_options:
+            raise ValueError(f"unsupported Solarbank 2 AC usage mode: {option}")
+        if option == self._device.usage_mode:
+            return
+
+        # Do not optimistically change the entity.  The select shows the
+        # value confirmed by the next A17C0 telemetry frame.
+        await self._device.set_usage_mode(option == "Custom")
 
 
 class Solarbank2ACMaxLoadSelect(RestoreEntity, SelectEntity):

@@ -61,7 +61,7 @@ async def validate_input(hass: HomeAssistant, address: str, model: Models) -> No
 class SolixBLEConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for SolixBLE."""
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialize the config flow."""
