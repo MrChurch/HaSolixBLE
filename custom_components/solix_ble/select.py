@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -17,6 +19,9 @@ from .SolixBLE.sb3_protocol import (
     SB3_SCHEDULE_MODE_CHARGE,
     SB3_SCHEDULE_MODE_DISCHARGE,
 )
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -74,12 +79,22 @@ class Solarbank2ACUsageModeSelect(SelectEntity):
     async def async_select_option(self, option: str) -> None:
         if option not in self._attr_options:
             raise ValueError(f"unsupported Solarbank 2 AC usage mode: {option}")
+        _LOGGER.debug(
+            "Solarbank 2 AC usage-mode select requested: requested=%s reported=%s",
+            option,
+            self._device.usage_mode,
+        )
         if option == self._device.usage_mode:
+            _LOGGER.debug("Solarbank 2 AC usage-mode select ignored: already active")
             return
 
         # Do not optimistically change the entity.  The select shows the
         # value confirmed by the next A17C0 telemetry frame.
         await self._device.set_usage_mode(option == "Custom")
+        _LOGGER.debug(
+            "Solarbank 2 AC usage-mode command submitted: requested=%s",
+            option,
+        )
 
 
 class Solarbank2ACMaxLoadSelect(RestoreEntity, SelectEntity):

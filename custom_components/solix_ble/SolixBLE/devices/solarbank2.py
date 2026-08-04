@@ -4,6 +4,7 @@
 
 """
 
+import logging
 import os
 import time
 import zlib
@@ -22,6 +23,9 @@ CMD_SB2_SET_SCHEDULE = bytes.fromhex("405e")
 CMD_SB2_SET_MAX_LOAD = bytes.fromhex("4080")
 CMD_SB2_SET_RESERVED_POWER = bytes.fromhex("4067")
 CMD_SB2_SET_LIGHT = bytes.fromhex("4068")
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class MaxLoadSB2(Enum):
@@ -726,9 +730,15 @@ class Solarbank2AC(Solarbank2):
 
     async def set_usage_mode(self, custom_mode: bool) -> None:
         """Switch between Custom and Self consumption on Solarbank 2 AC."""
+        payload = self._build_set_usage_mode_payload(custom_mode)
+        _LOGGER.debug(
+            "Solarbank 2 AC set usage mode: target=%s payload=%s",
+            "Custom" if custom_mode else "Self consumption",
+            payload.hex(),
+        )
         await self._send_command(
             CMD_SB2_SET_SCHEDULE,
-            self._build_set_usage_mode_payload(custom_mode),
+            payload,
         )
 
     @property
