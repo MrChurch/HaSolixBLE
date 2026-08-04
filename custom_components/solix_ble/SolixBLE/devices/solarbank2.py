@@ -572,9 +572,61 @@ class Solarbank2AC(Solarbank2):
 
     _DISPLAY_NAME = "Solarbank 2 E1600 AC"
 
+    # A17C0/Solarbank 2 AC uses typed float32 values (``05`` + LE float32)
+    # in c405.  This is intentionally kept in this subclass: the legacy
+    # Solarbank 2 integer/divisor mapping and the A17C5/Solarbank 3 mapping
+    # are different protocols and must not influence each other.  The actual
+    # meanings of these tags remain unverified and must not be exposed as
+    # named Home Assistant power sensors yet.
+    _A17C0_CANDIDATE_FLOAT_FIELDS = (
+        "b0",
+        "b1",
+        "b2",
+        "b3",
+        "b4",
+        "c4",
+    )
+
     async def _send_command(self, cmd: bytes, payload: bytes) -> None:
         """Route AC controls through its separately negotiated AES-GCM session."""
         await self._send_sb2ac_command(cmd, payload)
+
+    @property
+    def sb2ac_telemetry_candidates(self) -> dict[str, float]:
+        """Return unlabelled A17C0 float fields for controlled correlation.
+
+        These values are exposed to the debug logger with their wire tags so
+        controlled schedule tests can map them without publishing guessed
+        Home Assistant sensors.  Static APK labels alone are not sufficient:
+        the E1600 AC capture has no PV modules while ``b1`` is non-zero.
+        """
+        if self._data is None:
+            return {}
+        return {
+            key: self._parse_float(key)
+            for key in self._A17C0_CANDIDATE_FLOAT_FIELDS
+            if key in self._data
+        }
+
+    @property
+    def power_out(self) -> int:
+        """Current AC output from the verified A17C0 ``ad`` float.
+
+        With a 150 W custom schedule applied, three subsequent local c405
+        frames reported ``ad = 151 W``.  Keep this model-specific mapping out
+        of the legacy Solarbank 2 and Solarbank 3 decoders.
+        """
+        return round(self._parse_float("ad"))
+
+    @property
+    def grid_import_power(self) -> int:
+        """Current grid import power from the verified A17C0 ``d7`` float.
+
+        In the 150 W schedule capture, ``ad = 151 W`` plus ``d7 = 225 W``
+        equals the signed ``c4 = -376 W`` balance.  This identifies d7 as the
+        grid contribution to the house, not grid export.
+        """
+        return round(self._parse_float("d7"))
 
     @property
     def output_cutoff_data(self) -> SBPowerCutoff:

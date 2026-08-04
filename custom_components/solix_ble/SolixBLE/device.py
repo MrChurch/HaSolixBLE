@@ -144,6 +144,7 @@ class SolixBLEDevice:
     #: override this if their model uses different telemetry command codes
     #: (e.g the C1000 Gen 2 uses ``c421``/``c900`` instead of ``c402``/``c405``).
     _TELEMETRY_COMMANDS: tuple[str, ...] = ("c402", "4300", "c405")
+    _SB3_TELEMETRY_LOG_INTERVAL_SECONDS = 10.0
 
     def __init__(self, ble_device: BLEDevice) -> None:
         """Initialise device object. Does not connect automatically."""
@@ -179,6 +180,7 @@ class SolixBLEDevice:
         self._sb3_firmware_metadata: dict[str, str] = {}
         self._sb3_battery_firmware_versions: tuple[str, ...] = ()
         self._sb3_raw_fragments: dict[str, dict[int, bytes]] = {}
+        self._last_sb3_telemetry_log_timestamp: float = 0.0
         self._sb3_handshake: SB3Handshake | None = None
         self._sb3_checkpoint_complete: bool = False
         self._sb3_identity_authenticated: bool = False
@@ -995,23 +997,49 @@ class SolixBLEDevice:
         state_changed = self._data is None or parameters != self._data
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
-            _LOGGER.debug(
-                f"Telemetry parameters: {self._parameters_to_str(parameters)}"
-            )
-
-            # Print state update if changes
-            if state_changed:
-
-                # If we have previous data to compare against log the diff
-                if self._data is not None:
-                    _LOGGER.debug("Parameters have changed since previous update!")
-                    self._log_diff(self._data, parameters)
-
-                # Else log the parameters but with the types
-                else:
-                    _LOGGER.debug(
-                        f"Telemetry parameters: {self._parameters_to_str(parameters, types=True)}"
+            if self._is_solarbank3_transport:
+                # A17C5 delivers frequent multi-hundred-byte telemetry.  Do
+                # not expand raw packets and full parameter maps for every
+                # poll: that makes HA's log window lag while adding no state
+                # information. ``fe`` is the per-packet timestamp and is not
+                # useful as a state-change log entry.
+                changed_fields = (
+                    sorted(
+                        key
+                        for key in parameters.keys() | (self._data or {}).keys()
+                        if parameters.get(key) != (self._data or {}).get(key)
+                        and key != "fe"
                     )
+                    if state_changed
+                    else []
+                )
+                if (
+                    changed_fields
+                    and time.monotonic() - self._last_sb3_telemetry_log_timestamp
+                    >= self._SB3_TELEMETRY_LOG_INTERVAL_SECONDS
+                ):
+                    _LOGGER.debug(
+                        "SB3 telemetry changed fields=%s", ",".join(changed_fields)
+                    )
+                    self._last_sb3_telemetry_log_timestamp = time.monotonic()
+            else:
+                _LOGGER.debug(
+                    f"Telemetry parameters: {self._parameters_to_str(parameters)}"
+                )
+
+                # Print state update if changes
+                if state_changed:
+
+                    # If we have previous data to compare against log the diff
+                    if self._data is not None:
+                        _LOGGER.debug("Parameters have changed since previous update!")
+                        self._log_diff(self._data, parameters)
+
+                    # Else log the parameters but with the types
+                    else:
+                        _LOGGER.debug(
+                            f"Telemetry parameters: {self._parameters_to_str(parameters, types=True)}"
+                        )
 
         # Update internal parameters
         self._data = parameters
@@ -1019,8 +1047,8 @@ class SolixBLEDevice:
 
         # Run callbacks if state changed
         if state_changed:
-
-            _LOGGER.debug(self)
+            if not self._is_solarbank3_transport:
+                _LOGGER.debug(self)
             self._run_state_changed_callbacks()
 
     async def _process_notification(
@@ -1028,22 +1056,24 @@ class SolixBLEDevice:
     ) -> None:
         """Process a notification from the device."""
 
-        _LOGGER.debug(f"The client the notification is from: {client}")
+        if not self._is_solarbank3_transport:
+            _LOGGER.debug(f"The client the notification is from: {client}")
 
         if self._client is not client:
             _LOGGER.debug("Ignoring notification from old client")
             return
 
         # Split packet into pattern, command, and payload
-        _LOGGER.debug(
-            f"Received notification from '{self.name}'. length: {len(data)}, packet: '{data.hex()}'"
-        )
         self._last_packet_timestamp = time.time()
         pattern, cmd, payload = self._split_packet(data)
-        _LOGGER.debug(f"Pattern: {pattern.hex()}")
-        _LOGGER.debug(f"CMD: {cmd.hex()}")
-        _LOGGER.debug(f"Payload: {payload.hex()}")
-        _LOGGER.debug(f"Payload length: {len(payload)}")
+        if not self._is_solarbank3_transport:
+            _LOGGER.debug(
+                f"Received notification from '{self.name}'. length: {len(data)}, packet: '{data.hex()}'"
+            )
+            _LOGGER.debug(f"Pattern: {pattern.hex()}")
+            _LOGGER.debug(f"CMD: {cmd.hex()}")
+            _LOGGER.debug(f"Payload: {payload.hex()}")
+            _LOGGER.debug(f"Payload length: {len(payload)}")
 
         # If the packet has a future registered then we just trigger that
         # future instead of processing it here
@@ -1157,14 +1187,6 @@ class SolixBLEDevice:
                 if fragment_index == 1:
                     fragments.clear()
                 fragments[fragment_index] = bytes(payload[1:])
-                _LOGGER.debug(
-                    "SB3 raw fragment RX pattern=%s cmd=%s fragment=%d/%d len=%d",
-                    pattern.hex(),
-                    cmd_hex,
-                    fragment_index,
-                    fragment_total,
-                    len(payload) - 1,
-                )
                 if len(fragments) < fragment_total:
                     return
                 complete_payload = b"".join(
@@ -1200,7 +1222,9 @@ class SolixBLEDevice:
                     )
                     self._last_data_timestamp = datetime.now()
                     _LOGGER.debug(
-                        "SB3 battery metadata RX plaintext=%s", plaintext.hex()
+                        "SB3 battery metadata RX len=%d firmware_versions=%d",
+                        len(plaintext),
+                        len(self._sb3_battery_firmware_versions),
                     )
                     self._run_state_changed_callbacks()
                     return
@@ -1229,12 +1253,6 @@ class SolixBLEDevice:
                     )
                     return
                 parameters = self._parse_payload(plaintext)
-                _LOGGER.debug(
-                    "SB3 telemetry RX cmd=%s plaintext=%s parameters=%s",
-                    cmd_hex,
-                    plaintext.hex(),
-                    self._parameters_to_str(parameters, types=True),
-                )
                 await self._process_telemetry(parameters)
                 return
             except Exception:
@@ -1244,11 +1262,10 @@ class SolixBLEDevice:
                     exc_info=True,
                 )
         _LOGGER.debug(
-            "SB3 raw message RX pattern=%s cmd=%s len=%d payload=%s",
+            "SB3 raw message RX pattern=%s cmd=%s len=%d",
             pattern.hex(),
             cmd_hex,
             len(complete_payload),
-            complete_payload.hex(),
         )
 
     async def _process_negotiation(
@@ -1325,6 +1342,15 @@ class SolixBLEDevice:
             self._parameters_to_str(parameters, types=True),
         )
         await self._process_telemetry(parameters)
+        if cmd_hex == "c405":
+            candidates = getattr(self, "sb2ac_telemetry_candidates", None)
+            if candidates is not None:
+                _LOGGER.debug(
+                    "SB2 AC c405 decoded unlabelled float candidates=%s "
+                    "grid_import_power_w=%s",
+                    candidates,
+                    self._parse_float("d7"),
+                )
 
     async def _process_sb2ac_negotiation(
         self, pattern: bytes, cmd: bytes, payload: bytes

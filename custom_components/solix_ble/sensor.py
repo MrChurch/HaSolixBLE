@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
@@ -41,9 +40,6 @@ from .const import (
     PORT_STATUS_STRINGS,
     USAGE_MODE_SB2_STRINGS,
 )
-
-_LOGGER = logging.getLogger(__name__)
-
 
 if TYPE_CHECKING:
     from . import SolixBLEConfigEntry
@@ -84,6 +80,20 @@ async def async_setup_entry(
                     None,
                     "serial_number",
                     state_class=None,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "Total Power Out",
+                    "W",
+                    "power_out",
+                    SensorDeviceClass.POWER,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "Grid Import Power",
+                    "W",
+                    "grid_import_power",
+                    SensorDeviceClass.POWER,
                 ),
             ]
         )
@@ -1320,6 +1330,5 @@ class SolixSensorEntity(SensorEntity):
 
     def _state_change_callback(self) -> None:
         """Run when device informs of state update. Updates local properties."""
-        _LOGGER.debug("Received state notification from device %s", self.name)
         self._update_updatable_attributes()
         self.async_write_ha_state()
