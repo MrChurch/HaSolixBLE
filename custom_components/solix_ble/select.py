@@ -6,6 +6,7 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
@@ -30,7 +31,28 @@ async def async_setup_entry(
             [Solarbank3MaxLoadSelect(device), Solarbank3ScheduleModeSelect(device)]
         )
     elif isinstance(device, Solarbank2AC):
+        _disable_unsupported_sb2ac_mode_select(hass, config_entry, device)
         async_add_entities([Solarbank2ACMaxLoadSelect(device)])
+
+
+def _disable_unsupported_sb2ac_mode_select(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry[SolixBLEDevice],
+    device: Solarbank2AC,
+) -> None:
+    """Disable the retired SB2 AC mode setter left in existing registries."""
+    registry = er.async_get(hass)
+    unique_id = f"{device.address}_usage_mode_control"
+    for entry in er.async_entries_for_config_entry(registry, config_entry.entry_id):
+        if (
+            entry.domain == "select"
+            and entry.unique_id == unique_id
+            and entry.disabled_by is None
+        ):
+            registry.async_update_entity(
+                entry.entity_id,
+                disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+            )
 
 
 class Solarbank2ACMaxLoadSelect(RestoreEntity, SelectEntity):

@@ -29,6 +29,9 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
 
     device._data["ad"] = _typed_float(151.0)
     device._data["d7"] = _typed_float(231.0)
+    device._data["ab"] = _typed_float(0.0)
+    device._data["c6"] = _typed_float(0.0)
+    device._data["c7"] = _typed_float(0.0)
     device._data["a5"] = b"\x01\x25"
     device._data["a3"] = b"\x01\x5f"
     device._data["a4"] = b"\x01\x01"
@@ -44,6 +47,9 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
     assert device.battery_percentage == 95
     assert device.battery_percentage_aggregate == 95
     assert device.grid_import_power == 231
+    assert device.solar_power_in == 0
+    assert device.solar_pv_1_power_in == 0
+    assert device.solar_pv_2_power_in == 0
     assert device.temperature == 37
     assert device.discharge_limit == 10
     assert device.charge_limit == 95
@@ -54,6 +60,13 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
     assert device.schedule_power_target == 150
     assert device.sync_max_load_target() == 350
     assert device.max_load_target == 350
+
+    device._data["ab"] = _typed_float(345.0)
+    device._data["c6"] = _typed_float(200.0)
+    device._data["c7"] = _typed_float(145.0)
+    assert device.solar_power_in == 345
+    assert device.solar_pv_1_power_in == 200
+    assert device.solar_pv_2_power_in == 145
 
     device.set_schedule_power_target(300)
     assert device.schedule_power_target == 300

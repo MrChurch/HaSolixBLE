@@ -9,6 +9,7 @@ from homeassistant.components.sensor.const import SensorDeviceClass
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util.dt import as_local
 from .SolixBLE import (
@@ -45,6 +46,47 @@ if TYPE_CHECKING:
     from . import SolixBLEConfigEntry
 
 
+_SB2AC_SUPPORTED_SENSOR_ATTRIBUTES = frozenset(
+    {
+        "battery_percentage",
+        "battery_percentage_aggregate",
+        "charge_limit",
+        "discharge_limit",
+        "grid_import_power",
+        "operating_mode_sb2ac",
+        "power_out",
+        "serial_number",
+        "solar_power_in",
+        "solar_pv_1_power_in",
+        "solar_pv_2_power_in",
+        "temperature",
+    }
+)
+
+
+def _disable_unverified_sb2ac_sensor_entities(
+    hass: HomeAssistant,
+    config_entry: SolixBLEConfigEntry,
+    device: Solarbank2AC,
+) -> None:
+    """Disable stale legacy SB2 entities for the incompatible A17C0 layout."""
+    registry = er.async_get(hass)
+    unique_id_prefix = f"{device.address}_"
+    for entry in er.async_entries_for_config_entry(registry, config_entry.entry_id):
+        if (
+            entry.domain != "sensor"
+            or not entry.unique_id.startswith(unique_id_prefix)
+            or entry.disabled_by is not None
+        ):
+            continue
+        attribute = entry.unique_id.removeprefix(unique_id_prefix)
+        if attribute not in _SB2AC_SUPPORTED_SENSOR_ATTRIBUTES:
+            registry.async_update_entity(
+                entry.entity_id,
+                disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+            )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: SolixBLEConfigEntry,
@@ -65,6 +107,7 @@ async def async_setup_entry(
     # Controls are intentionally defined in their own platforms and therefore
     # remain available while the rest of the read-only telemetry is mapped.
     if type(device) is Solarbank2AC:
+        _disable_unverified_sb2ac_sensor_entities(hass, config_entry, device)
         sensors.extend(
             [
                 SolixSensorEntity(
@@ -100,6 +143,27 @@ async def async_setup_entry(
                     "Grid Import Power",
                     "W",
                     "grid_import_power",
+                    SensorDeviceClass.POWER,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "Solar Power In",
+                    "W",
+                    "solar_power_in",
+                    SensorDeviceClass.POWER,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "Solar Power In Port 1",
+                    "W",
+                    "solar_pv_1_power_in",
+                    SensorDeviceClass.POWER,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "Solar Power In Port 2",
+                    "W",
+                    "solar_pv_2_power_in",
                     SensorDeviceClass.POWER,
                 ),
                 SolixSensorEntity(

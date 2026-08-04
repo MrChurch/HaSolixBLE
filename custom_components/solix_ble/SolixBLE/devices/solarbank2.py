@@ -742,6 +742,32 @@ class Solarbank2AC(Solarbank2):
         return round(self._parse_float("d7"))
 
     @property
+    def solar_power_in(self) -> int | None:
+        """Return the total PV input from the typed A17C0 ``ab`` field.
+
+        Unlike legacy Solarbank 2 telemetry, A17C0 supplies this directly as
+        a float32.  Keep it model-local so the old integer/divisor mapping is
+        never applied to the AC model.
+        """
+        if self._data is None or "ab" not in self._data:
+            return None
+        return round(self._parse_float("ab"))
+
+    @property
+    def solar_pv_1_power_in(self) -> int | None:
+        """Return A17C0 PV input 1 from its typed ``c6`` field."""
+        if self._data is None or "c6" not in self._data:
+            return None
+        return round(self._parse_float("c6"))
+
+    @property
+    def solar_pv_2_power_in(self) -> int | None:
+        """Return A17C0 PV input 2 from its typed ``c7`` field."""
+        if self._data is None or "c7" not in self._data:
+            return None
+        return round(self._parse_float("c7"))
+
+    @property
     def temperature(self) -> int:
         """Return the A17C0 unit temperature from the typed ``a5`` integer.
 
