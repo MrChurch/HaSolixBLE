@@ -629,6 +629,35 @@ class Solarbank2AC(Solarbank2):
         return round(self._parse_float("d7"))
 
     @property
+    def temperature(self) -> int:
+        """Return the A17C0 unit temperature from the typed ``a5`` integer.
+
+        Consecutive owned E1600 AC captures report ``a5`` as 35, 36, and
+        37 while the other device-status fields stay stable.  That is the
+        expected behaviour of the unit temperature; interpreting it as the
+        legacy SB2 error-code field produced misleading persistent errors.
+        """
+        return self._parse_int("a5", begin=1, signed=True)
+
+    @property
+    def discharge_limit(self) -> int:
+        """Return the configured lower state-of-charge limit from ``b5``.
+
+        The value follows the tested A17C0 custom-plan discharge limit (10 %
+        in the current capture).  It is a configuration value, not live power.
+        """
+        return self._parse_int("b5", begin=1)
+
+    @property
+    def charge_limit(self) -> int:
+        """Return the configured upper state-of-charge limit from ``b7``.
+
+        The value follows the tested A17C0 charge limit (95 % in the current
+        capture).  It is intentionally separate from the live battery SOC.
+        """
+        return self._parse_int("b7", begin=1)
+
+    @property
     def output_cutoff_data(self) -> SBPowerCutoff:
         """Return the AC output cutoff when the payload exposes it."""
         try:

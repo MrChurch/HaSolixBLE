@@ -29,5 +29,11 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
 
     device._data["ad"] = _typed_float(151.0)
     device._data["d7"] = _typed_float(231.0)
+    device._data["a5"] = b"\x01\x25"
+    device._data["b5"] = b"\x01\x0a"
+    device._data["b7"] = b"\x01\x5f"
     assert device.power_out == 151
     assert device.grid_import_power == 231
+    assert device.temperature == 37
+    assert device.discharge_limit == 10
+    assert device.charge_limit == 95

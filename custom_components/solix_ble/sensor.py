@@ -95,6 +95,27 @@ async def async_setup_entry(
                     "grid_import_power",
                     SensorDeviceClass.POWER,
                 ),
+                SolixSensorEntity(
+                    device,
+                    "Temperature",
+                    UnitOfTemperature.CELSIUS,
+                    "temperature",
+                    SensorDeviceClass.TEMPERATURE,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "Discharge limit",
+                    "%",
+                    "discharge_limit",
+                    SensorDeviceClass.BATTERY,
+                ),
+                SolixSensorEntity(
+                    device,
+                    "Charge limit",
+                    "%",
+                    "charge_limit",
+                    SensorDeviceClass.BATTERY,
+                ),
             ]
         )
         async_add_entities(sensors)
