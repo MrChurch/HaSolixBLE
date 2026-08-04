@@ -67,7 +67,7 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
     device.set_max_load_target(600)
     assert device.max_load_target == 600
 
-    device._data["a4"] = b"\x01\x00"
+    device._data["a4"] = b"\x01\x02"
     assert device.usage_mode == "Self consumption"
 
 

@@ -831,13 +831,15 @@ class Solarbank2AC(Solarbank2):
     def usage_mode(self) -> str:
         """Return the A17C0 operating mode reported by ``a4``.
 
-        Controlled captures show ``a4=0`` in self-consumption operation and
-        ``a4=1`` when the custom plan is active.  This is intentionally a
-        model-specific string instead of the legacy Solarbank 2 enum.
+        The controlled app capture and the subsequent live A17C0 frame show
+        ``a4=1`` for Custom and ``a4=2`` for Self consumption.  Earlier
+        frames with ``a4=0`` are an uninitialised/default state, not the
+        selected Self consumption mode.  This is intentionally a model-
+        specific string instead of the legacy Solarbank 2 enum.
         """
         return {
-            0: "Self consumption",
             1: "Custom",
+            2: "Self consumption",
         }.get(self._parse_int("a4", begin=1), "Unknown")
 
     @property
