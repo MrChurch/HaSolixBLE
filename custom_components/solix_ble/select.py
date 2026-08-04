@@ -21,7 +21,10 @@ from .SolixBLE.sb3_protocol import (
 )
 
 
-_LOGGER = logging.getLogger(__name__)
+# The integration's supplied diagnostic logger is scoped to the protocol
+# package.  Keep this entity-level trace on that logger so it is visible in
+# the existing HA debug exports without requiring a second logger setting.
+_LOGGER = logging.getLogger("custom_components.solix_ble.SolixBLE.device")
 
 
 async def async_setup_entry(
@@ -90,7 +93,14 @@ class Solarbank2ACUsageModeSelect(SelectEntity):
 
         # Do not optimistically change the entity.  The select shows the
         # value confirmed by the next A17C0 telemetry frame.
-        await self._device.set_usage_mode(option == "Custom")
+        try:
+            await self._device.set_usage_mode(option == "Custom")
+        except Exception:
+            _LOGGER.exception(
+                "Solarbank 2 AC usage-mode command failed: requested=%s",
+                option,
+            )
+            raise
         _LOGGER.debug(
             "Solarbank 2 AC usage-mode command submitted: requested=%s",
             option,
