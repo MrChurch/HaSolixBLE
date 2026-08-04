@@ -831,15 +831,15 @@ class Solarbank2AC(Solarbank2):
     def usage_mode(self) -> str:
         """Return the A17C0 operating mode reported by ``a4``.
 
-        The controlled app capture and the subsequent live A17C0 frame show
-        ``a4=1`` for Custom and ``a4=2`` for Self consumption.  Earlier
-        frames with ``a4=0`` are an uninitialised/default state, not the
-        selected Self consumption mode.  This is intentionally a model-
-        specific string instead of the legacy Solarbank 2 enum.
+        ``a4=1`` has been observed while the Custom plan is active.  The
+        A17C0 also reports ``a4=2`` while it rejects or rolls back a mode
+        change, so that value must not be presented as Self consumption.
+        Until an app capture correlates the confirmed Self consumption state
+        with a readback field, unknown values intentionally remain Unknown
+        rather than producing a misleading selection in Home Assistant.
         """
         return {
             1: "Custom",
-            2: "Self consumption",
         }.get(self._parse_int("a4", begin=1), "Unknown")
 
     @property

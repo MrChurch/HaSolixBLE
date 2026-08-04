@@ -68,7 +68,7 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
     assert device.max_load_target == 600
 
     device._data["a4"] = b"\x01\x02"
-    assert device.usage_mode == "Self consumption"
+    assert device.usage_mode == "Unknown"
 
 
 def test_sb2ac_rounds_live_plan_value_to_the_ble_control_grid() -> None:
