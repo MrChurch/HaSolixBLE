@@ -7,6 +7,7 @@
 import logging
 import os
 import time
+import zlib
 from enum import Enum
 
 from ..const import (
@@ -704,6 +705,57 @@ class Solarbank2AC(Solarbank2):
         self._max_load_target = load.value
         self._max_load_target_staged = False
 
+    @staticmethod
+    def _build_set_usage_mode_payload(
+        custom_mode: bool, *, timestamp: int | None = None
+    ) -> bytes:
+        """Build the captured A17C0 ``405e`` ``setBackPower`` payload.
+
+        The Android capture contains the two exact forms used by the E1600
+        AC: Custom uses ``a4=1`` with a minute-aligned 24-hour BackPower
+        period; Self consumption uses ``a4=0`` and zero time fields.  ``fd``
+        is the standard CRC-32 of the typed fields *after* ``a10121``.
+
+        The outer A17C0 session sender adds the independent ``fe0503``
+        anti-replay timestamp afterwards.
+        """
+        if timestamp is None:
+            timestamp = int(time.time())
+        if not 0 <= timestamp <= 0xFFFFFFFF:
+            raise ValueError("timestamp does not fit in four bytes")
+
+        payload = bytearray.fromhex(
+            "a10121a2020104a3020100a40201"
+            + ("01" if custom_mode else "00")
+        )
+        if custom_mode:
+            # The official app aligns BackPower starts to a whole minute.  A
+            # one-day range is directly present in the owned Custom capture.
+            start_timestamp = timestamp - (timestamp % 60)
+            end_timestamp = start_timestamp + 24 * 60 * 60
+        else:
+            start_timestamp = 0
+            end_timestamp = 0
+
+        payload += bytes.fromhex("a60503") + start_timestamp.to_bytes(4, "little")
+        payload += bytes.fromhex("a70503") + end_timestamp.to_bytes(4, "little")
+        payload += bytes.fromhex("fd0503") + zlib.crc32(payload[3:]).to_bytes(
+            4, "little"
+        )
+        return bytes(payload)
+
+    async def set_usage_mode(self, custom_mode: bool) -> None:
+        """Switch the A17C0 between Custom and Self consumption.
+
+        This uses the independently decrypted short app command, not the
+        seven-day schedule writer.  It therefore leaves the staged Custom
+        schedule target untouched.
+        """
+        await self._send_command(
+            CMD_SB2_SET_SCHEDULE,
+            self._build_set_usage_mode_payload(custom_mode),
+        )
+
     @property
     def sb2ac_telemetry_candidates(self) -> dict[str, float]:
         """Return unlabelled A17C0 float fields for controlled correlation.
@@ -776,8 +828,7 @@ class Solarbank2AC(Solarbank2):
 
         ``a4=1`` is reported while the Custom plan is active.  A controlled
         app-side switch to Self consumption reports ``a4=2`` in the next
-        A17C0 ``c405`` telemetry frame.  This is read-only state mapping; the
-        corresponding 30-slot app write is not yet exposed as a HA control.
+        A17C0 ``c405`` telemetry frame.
         """
         return {
             1: "Custom",
