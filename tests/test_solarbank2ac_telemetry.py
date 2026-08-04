@@ -30,6 +30,7 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
     device._data["ad"] = _typed_float(151.0)
     device._data["d7"] = _typed_float(231.0)
     device._data["a5"] = b"\x01\x25"
+    device._data["a4"] = b"\x01\x01"
     device._data["b5"] = b"\x01\x0a"
     device._data["b7"] = b"\x01\x5f"
     device._data["bd"] = b"\x02\x5e\x01"
@@ -43,6 +44,7 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
     assert device.temperature == 37
     assert device.discharge_limit == 10
     assert device.charge_limit == 95
+    assert device.usage_mode == "Custom"
     assert device.max_load_limit == 350
     assert device.sync_schedule_power_target() == 150
     assert device.schedule_power_target == 150
@@ -53,3 +55,6 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
     assert device.schedule_power_target == 300
     device.set_max_load_target(600)
     assert device.max_load_target == 600
+
+    device._data["a4"] = b"\x01\x00"
+    assert device.usage_mode == "Self consumption"

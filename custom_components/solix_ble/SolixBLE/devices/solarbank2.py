@@ -746,6 +746,19 @@ class Solarbank2AC(Solarbank2):
         return self._parse_int("b7", begin=1)
 
     @property
+    def usage_mode(self) -> str:
+        """Return the A17C0 operating mode reported by ``a4``.
+
+        Controlled captures show ``a4=0`` in self-consumption operation and
+        ``a4=1`` when the custom plan is active.  This is intentionally a
+        model-specific string instead of the legacy Solarbank 2 enum.
+        """
+        return {
+            0: "Self consumption",
+            1: "Custom",
+        }.get(self._parse_int("a4", begin=1), "Unknown")
+
+    @property
     def output_cutoff_data(self) -> SBPowerCutoff:
         """Return the AC output cutoff when the payload exposes it."""
         try:
