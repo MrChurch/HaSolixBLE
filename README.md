@@ -34,16 +34,40 @@ No cloud account or firmware modification is required.
 
 ### Solarbank 2 AC
 
-Solarbank 2 AC is available as a separate model selection in the integration.
-It currently reuses the established Solarbank 2 BLE telemetry and control
-mapping, including AC output, solar input, battery power, energy counters,
-usage mode, cutoff thresholds, light and heater status.  The separate device
-class keeps the AC variant distinguishable while further Solarbank 2 AC
-captures are collected for variant-specific fields.
-The first AC capture confirms the normal encrypted `c405` telemetry stream;
-cutoff, maximum-load and usage-mode values that are not valid Solarbank 2
-enum values are exposed as `Unknown` until their AC-specific encoding is
-confirmed.
+Solarbank 2 E1600 AC (A17C0) is available as a separate model selection. It
+does **not** reuse the legacy Solarbank 2 sensor decoder: its encrypted `c405`
+telemetry contains typed values with a different layout. Applying the legacy
+integer/divisor mapping produces physically impossible readings, so the AC
+variant is intentionally kept in its own device class.
+
+Validated local telemetry currently exposed for the AC model:
+
+- battery percentage and average battery percentage (the AC has no expansion
+  battery telemetry, so both represent the unit SOC)
+- charge and discharge limits
+- temperature, serial number, Total Power Out and Grid Import Power
+- read-only Usage mode (`Custom` or `Self consumption`)
+- Solar Power In and PV ports 1/2, decoded from the observed typed A17C0 tags
+  `ab`, `c6` and `c7`
+
+The local controls are an all-day Custom schedule (`405e`, 0-800 W in 50 W
+steps) and the staged maximum load limit (`4080`). The usage-mode value is
+telemetry only. An earlier experimental local mode setter did not reproduce
+the Anker app behaviour and has deliberately been removed.
+
+Unassigned legacy sensors (energy counters, AC socket power, heater status,
+firmware fields, grid status and similar values) are disabled for Solarbank 2
+AC instead of displaying guessed or stale data. Existing installations are
+cleaned up automatically when the integration is reloaded.
+
+#### Continuing the A17C0 decoder
+
+Please capture one app action at a time and retain the matching BLE log. Good
+next candidates are PV input under real PV generation, energy counters and
+the app-side mode change. A new field should only be published after its raw
+typed value has been correlated with a controlled change and backed by a
+regression test. Do not copy Solarbank 2 or Solarbank 3 field offsets into the
+AC model without that verification.
 
 ### Telemetry
 
@@ -91,6 +115,12 @@ may still show the previous value.
 The active device value changes immediately over BLE and is visible in the
 telemetry.
 
+> **BLE control resolution:** Solarbank 3 local BLE schedule writes use the
+> captured and validated 50 W increment (0-1200 W). This is intentionally
+> enforced by the integration. The Anker app's Wi-Fi/cloud control may offer
+> 10 W increments; that is a different control path and is not assumed to be
+> valid for the local BLE command.
+
 ## Supported devices
 
 The integration supports the following devices and variants:
@@ -104,6 +134,7 @@ The integration supports the following devices and variants:
 - Anker Prime 250 W Charger
 - Anker Prime 20k (220 W) Power Bank
 - Solarbank 2
+- Solarbank 2 E1600 AC (A17C0)
 - Solarbank 3 E2700 Pro (A17C5)
 
 ## Installation (HACS)
