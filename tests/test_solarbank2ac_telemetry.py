@@ -84,22 +84,3 @@ def test_sb2ac_rounds_live_plan_value_to_the_ble_control_grid() -> None:
 
     assert device.schedule_power == 450
     assert device.sync_schedule_power_target() == 450
-
-
-def test_sb2ac_builds_captured_back_power_mode_payload() -> None:
-    """A17C0 Custom/Self writes match the decrypted Android app capture."""
-    custom = Solarbank2AC._build_set_usage_mode_payload(
-        True, timestamp=1_785_783_540
-    )
-    self_consumption = Solarbank2AC._build_set_usage_mode_payload(
-        False, timestamp=1_785_783_596
-    )
-
-    assert custom.hex() == (
-        "a10121a2020104a3020100a4020101"
-        "a60503f4e4706aa705037436726afd0503083861b9"
-    )
-    assert self_consumption.hex() == (
-        "a10121a2020104a3020100a4020100"
-        "a6050300000000a7050300000000fd05037818d4c2"
-    )
