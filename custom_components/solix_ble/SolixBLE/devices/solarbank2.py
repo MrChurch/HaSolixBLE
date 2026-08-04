@@ -599,7 +599,7 @@ class Solarbank2AC(Solarbank2):
         if (
             not self._schedule_power_target_staged
             and self._data is not None
-            and "c5" in self._data
+            and "b9" in self._data
         ):
             return self.schedule_power
         return self._schedule_power_target
@@ -649,11 +649,11 @@ class Solarbank2AC(Solarbank2):
         return self._parse_int("bd", begin=1)
 
     def sync_schedule_power_target(self) -> int | None:
-        """Use live ``c5`` telemetry as the initial custom-plan slider value."""
+        """Use live ``b9`` telemetry as the initial custom-plan slider value."""
         if (
             self._schedule_power_target_staged
             or self._data is None
-            or "c5" not in self._data
+            or "b9" not in self._data
         ):
             return None
         self._schedule_power_target_staged = False
@@ -662,8 +662,14 @@ class Solarbank2AC(Solarbank2):
 
     @property
     def schedule_power(self) -> int:
-        """Return the active A17C0 custom-plan output from ``c5``."""
-        return round(self._parse_float("c5"))
+        """Return the active A17C0 custom-plan target from ``b9``.
+
+        The owned AC frame with an active 450 W plan reports ``b9 = 440``
+        while ``c5 = 0`` and the live output ``ad = 439``.  ``b9`` is
+        therefore the plan field; normalise its device-side 10 W resolution
+        to the integration's supported 50 W control grid.
+        """
+        return int(round(self._parse_int("b9", begin=1) / 50) * 50)
 
     async def _send_command(self, cmd: bytes, payload: bytes) -> None:
         """Route AC controls through its separately negotiated AES-GCM session."""

@@ -34,7 +34,7 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
     device._data["b5"] = b"\x01\x0a"
     device._data["b7"] = b"\x01\x5f"
     device._data["bd"] = b"\x02\x5e\x01"
-    device._data["c5"] = _typed_float(150.0)
+    device._data["b9"] = b"\x02\x96\x00"
     device._schedule_power_target = 0
     device._schedule_power_target_staged = False
     device._max_load_target = 800
@@ -66,3 +66,14 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
 
     device._data["a4"] = b"\x01\x00"
     assert device.usage_mode == "Self consumption"
+
+
+def test_sb2ac_rounds_live_plan_value_to_the_ble_control_grid() -> None:
+    """The AC reports the plan in 10 W increments but BLE control uses 50 W."""
+    device = object.__new__(Solarbank2AC)
+    device._data = {"b9": b"\x02\xb8\x01", "c5": _typed_float(0.0)}
+    device._schedule_power_target = 0
+    device._schedule_power_target_staged = False
+
+    assert device.schedule_power == 450
+    assert device.sync_schedule_power_target() == 450
