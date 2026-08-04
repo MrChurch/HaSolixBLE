@@ -591,6 +591,7 @@ class Solarbank2AC(Solarbank2):
         """Initialize AC telemetry state without staging a schedule override."""
         super().__init__(ble_device)
         self._schedule_power_target_staged = False
+        self._max_load_target_staged = False
 
     @property
     def schedule_power_target(self) -> int:
@@ -607,6 +608,43 @@ class Solarbank2AC(Solarbank2):
         """Stage an AC schedule target without changing the device yet."""
         super().set_schedule_power_target(power_w)
         self._schedule_power_target_staged = staged
+
+    @property
+    def max_load_target(self) -> int:
+        """Return the staged limit or the live A17C0 limit from ``bd``."""
+        if (
+            not self._max_load_target_staged
+            and self._data is not None
+            and "bd" in self._data
+        ):
+            return self.max_load_limit
+        return self._max_load_target
+
+    def set_max_load_target(self, load_w: int, *, staged: bool = True) -> None:
+        """Stage an AC maximum-load limit without changing the device yet."""
+        super().set_max_load_target(load_w)
+        self._max_load_target_staged = staged
+
+    def sync_max_load_target(self) -> int | None:
+        """Use live ``bd`` telemetry as the initial maximum-load value."""
+        if self._max_load_target_staged or self._data is None or "bd" not in self._data:
+            return None
+        limit = self.max_load_limit
+        if limit not in {
+            member.value for member in MaxLoadSB2 if member is not MaxLoadSB2.UNKNOWN
+        }:
+            return None
+        self._max_load_target = limit
+        return limit
+
+    @property
+    def max_load_limit(self) -> int:
+        """Return the active A17C0 output limit from ``bd`` in watts.
+
+        The owned live frame has ``bd = 0x015e`` while the app limit is 350 W.
+        ``d6 = 1200`` is the device capability and must not seed the selector.
+        """
+        return self._parse_int("bd", begin=1)
 
     def sync_schedule_power_target(self) -> int | None:
         """Use live ``c5`` telemetry as the initial custom-plan slider value."""
@@ -634,6 +672,12 @@ class Solarbank2AC(Solarbank2):
         await super().set_schedule(power_w)
         self._schedule_power_target = power_w
         self._schedule_power_target_staged = False
+
+    async def set_max_load(self, load: MaxLoadSB2) -> None:
+        """Write the output limit and resume following its reported value."""
+        await super().set_max_load(load)
+        self._max_load_target = load.value
+        self._max_load_target_staged = False
 
     @property
     def sb2ac_telemetry_candidates(self) -> dict[str, float]:

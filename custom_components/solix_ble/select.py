@@ -57,10 +57,28 @@ class Solarbank2ACMaxLoadSelect(RestoreEntity, SelectEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        self._device.add_callback(self._state_change_callback)
+        live_target = self._device.sync_max_load_target()
+        if live_target is not None:
+            self._attr_current_option = str(live_target)
+            return
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state in self._attr_options:
-            self._device.set_max_load_target(int(last_state.state))
+            # A restored HA state is only a fallback until bd telemetry arrives.
+            self._device.set_max_load_target(int(last_state.state), staged=False)
             self._attr_current_option = last_state.state
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister the live maximum-load callback."""
+        self._device.remove_callback(self._state_change_callback)
+
+    def _state_change_callback(self) -> None:
+        """Refresh the selector from the live limit without losing staging."""
+        live_target = self._device.sync_max_load_target()
+        if live_target is None:
+            return
+        self._attr_current_option = str(live_target)
+        self.async_write_ha_state()
 
     async def async_select_option(self, option: str) -> None:
         if option not in self._attr_options:
