@@ -595,6 +595,17 @@ class Solarbank2AC(Solarbank2):
         self._max_load_target_staged = False
 
     @property
+    def battery_percentage_aggregate(self) -> int:
+        """Return the AC unit SoC as its only available battery average.
+
+        A Solarbank 2 AC has no expansion battery telemetry.  Its legacy
+        aggregate field (``ad``) is instead the live AC output power on the
+        A17C0 wire format, so the meaningful average is the verified unit SoC
+        from ``a3``.
+        """
+        return self.battery_percentage
+
+    @property
     def schedule_power_target(self) -> int:
         """Return the staged target or the live A17C0 custom-plan value."""
         if (
