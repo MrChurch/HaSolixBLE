@@ -53,6 +53,14 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
 
     device.set_schedule_power_target(300)
     assert device.schedule_power_target == 300
+
+    try:
+        device.set_schedule_power_target(310)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("SB2 AC must reject schedule targets outside 50 W steps")
+
     device.set_max_load_target(600)
     assert device.max_load_target == 600
 

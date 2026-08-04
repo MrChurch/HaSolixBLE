@@ -605,7 +605,9 @@ class Solarbank2AC(Solarbank2):
         return self._schedule_power_target
 
     def set_schedule_power_target(self, power_w: int, *, staged: bool = True) -> None:
-        """Stage an AC schedule target without changing the device yet."""
+        """Stage an AC schedule target in 50 W BLE increments."""
+        if not 0 <= power_w <= 800 or power_w % 50:
+            raise ValueError("Schedule power must be between 0 and 800 W in 50 W steps")
         super().set_schedule_power_target(power_w)
         self._schedule_power_target_staged = staged
 
@@ -668,7 +670,9 @@ class Solarbank2AC(Solarbank2):
         await self._send_sb2ac_command(cmd, payload)
 
     async def set_schedule(self, power_w: int) -> None:
-        """Write the uniform plan and resume following its reported value."""
+        """Write the uniform plan in 50 W BLE increments."""
+        if not 0 <= power_w <= 800 or power_w % 50:
+            raise ValueError("Schedule power must be between 0 and 800 W in 50 W steps")
         await super().set_schedule(power_w)
         self._schedule_power_target = power_w
         self._schedule_power_target_staged = False

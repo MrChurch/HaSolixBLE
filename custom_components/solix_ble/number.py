@@ -34,7 +34,7 @@ class Solarbank2ACScheduleNumber(RestoreEntity, NumberEntity):
     _attr_icon = "mdi:solar-power"
     _attr_native_min_value = 0
     _attr_native_max_value = 800
-    _attr_native_step = 10
+    _attr_native_step = 50
     _attr_native_unit_of_measurement = "W"
     _attr_mode = "slider"
 
@@ -65,10 +65,11 @@ class Solarbank2ACScheduleNumber(RestoreEntity, NumberEntity):
             value = int(float(last_state.state))
         except ValueError:
             return
-        if 0 <= value <= 800 and value % 10 == 0:
+        if 0 <= value <= 800:
             # A cached HA state is only a fallback until c5 telemetry arrives.
-            self._device.set_schedule_power_target(value, staged=False)
-            self._attr_native_value = value
+            target = int(round(value / 50) * 50)
+            self._device.set_schedule_power_target(target, staged=False)
+            self._attr_native_value = target
 
     async def async_will_remove_from_hass(self) -> None:
         """Unregister the live schedule callback."""
@@ -83,7 +84,7 @@ class Solarbank2ACScheduleNumber(RestoreEntity, NumberEntity):
         self.async_write_ha_state()
 
     async def async_set_native_value(self, value: float) -> None:
-        target = int(round(value / 10) * 10)
+        target = int(round(value / 50) * 50)
         self._device.set_schedule_power_target(target)
         self._attr_native_value = target
         self.async_write_ha_state()
