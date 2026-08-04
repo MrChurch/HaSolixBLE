@@ -127,7 +127,7 @@ async def async_setup_entry(
                     device,
                     "Usage mode",
                     None,
-                    "usage_mode",
+                    "operating_mode_sb2ac",
                     state_class=None,
                 ),
             ]

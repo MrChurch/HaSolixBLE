@@ -48,6 +48,7 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
     assert device.discharge_limit == 10
     assert device.charge_limit == 95
     assert device.usage_mode == "Custom"
+    assert device.operating_mode_sb2ac == "Custom"
     assert device.max_load_limit == 350
     assert device.sync_schedule_power_target() == 150
     assert device.schedule_power_target == 150
@@ -69,6 +70,7 @@ def test_sb2ac_preserves_unlabelled_typed_float_candidates() -> None:
 
     device._data["a4"] = b"\x01\x02"
     assert device.usage_mode == "Self consumption"
+    assert device.operating_mode_sb2ac == "Self consumption"
     device._data["a4"] = b"\x01\x03"
     assert device.usage_mode == "Unknown"
 

@@ -785,6 +785,17 @@ class Solarbank2AC(Solarbank2):
         }.get(self._parse_int("a4", begin=1), "Unknown")
 
     @property
+    def operating_mode_sb2ac(self) -> str:
+        """Return the A17C0 mode through an AC-specific entity key.
+
+        Earlier development versions exposed ``usage_mode`` as a select and
+        subsequently removed it during the SB2 AC entity-registry cleanup.
+        Keeping the reporting property under its own stable A17C0 key avoids
+        that stale registry history while preserving the validated mapping.
+        """
+        return self.usage_mode
+
+    @property
     def output_cutoff_data(self) -> SBPowerCutoff:
         """Return the AC output cutoff when the payload exposes it."""
         try:
