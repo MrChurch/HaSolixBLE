@@ -787,14 +787,6 @@ class Solarbank2AC(Solarbank2):
             return MaxLoadSB2.UNKNOWN
 
     @property
-    def usage_mode(self) -> SBUsageMode:
-        """Return the AC usage mode or UNKNOWN for an unsupported value."""
-        try:
-            return super().usage_mode
-        except ValueError:
-            return SBUsageMode.UNKNOWN
-
-    @property
     def temperature_unit(self) -> TemperatureUnit:
         """Return Unknown when the AC telemetry uses a non-enum field."""
         try:

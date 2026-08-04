@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er
 from .SolixBLE import (
     C300,
     C300DC,
@@ -33,6 +34,18 @@ from .const import Models
 _LOGGER = logging.getLogger(__name__)
 
 type SolixBLEConfigEntry = ConfigEntry[SolixBLEDevice]
+
+
+_SB2AC_REMOVED_LEGACY_SENSOR_ATTRIBUTES = {
+    "solar_power_in",
+    "solar_pv_1_power_in",
+    "solar_pv_2_power_in",
+    "solar_pv_3_power_in",
+    "solar_pv_4_power_in",
+    "pv_yield",
+    "grid_to_home_power",
+    "pv_to_grid_power",
+}
 
 
 def get_power_station_class(model: Models) -> SolixBLEDevice:
@@ -68,6 +81,32 @@ def get_power_station_class(model: Models) -> SolixBLEDevice:
         return Generic
     else:
         raise NotImplementedError(f"Unexpected model. Got: '{type(model)}'!")
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Remove Solarbank 2 AC entities created by the legacy SB2 decoder."""
+    if entry.version > 2:
+        return False
+
+    if (
+        entry.version < 2
+        and entry.data.get("model") == Models.SOLARBANK_2_AC.value
+        and entry.unique_id is not None
+    ):
+        registry = er.async_get(hass)
+        unique_id_prefix = f"{entry.unique_id.upper()}_"
+        obsolete_unique_ids = {
+            f"{unique_id_prefix}{attribute}"
+            for attribute in _SB2AC_REMOVED_LEGACY_SENSOR_ATTRIBUTES
+        }
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+            if entity.unique_id in obsolete_unique_ids:
+                registry.async_remove(entity.entity_id)
+
+    if entry.version < 2:
+        hass.config_entries.async_update_entry(entry, version=2)
+
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SolixBLEConfigEntry) -> bool:
