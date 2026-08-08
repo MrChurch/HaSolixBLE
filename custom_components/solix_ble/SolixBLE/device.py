@@ -1785,7 +1785,16 @@ class SolixBLEDevice:
                     _LOGGER.warning(
                         f"Timed out attempting to silently reconnect to '{self.name}', callbacks will be triggered due to disconnect!"
                     )
-                    self._reset_session(reset_data=True)
+                    # A reconnect timeout must make live telemetry unavailable,
+                    # but the separately authenticated 4409 topology remains
+                    # valid device metadata.  Clearing it here caused the SB3
+                    # expansion-battery entities to become UNKNOWN until a
+                    # full Home Assistant restart, even after BLE telemetry
+                    # had recovered.
+                    self._reset_session(
+                        reset_data=True,
+                        preserve_sb3_battery_metadata=True,
+                    )
                     self._run_state_changed_callbacks()
 
                     # If we ran callbacks due to a disconnect we will
@@ -1840,8 +1849,13 @@ class SolixBLEDevice:
                 f"Exception raised when disposing of bleak client '{client}'!"
             )
 
-    def _reset_session(self, reset_data: bool = True) -> None:
-        """Reset negotiated variables and data and futures."""
+    def _reset_session(
+        self,
+        reset_data: bool = True,
+        *,
+        preserve_sb3_battery_metadata: bool = False,
+    ) -> None:
+        """Reset negotiated state, optionally retaining valid SB3 topology."""
 
         if reset_data:
             self._data = None
@@ -1853,13 +1867,11 @@ class SolixBLEDevice:
         self._sb3_session_ready = False
         self._sb3_identity_authenticated = False
         self._sb3_raw_packets = {}
-        # Keep the last valid 4409 topology response while a connection is
-        # being re-established.  ``reset_data=False`` is the silent reconnect
-        # path and deliberately preserves cached telemetry; clearing this
-        # metadata here made expansion-battery entities become UNKNOWN until a
-        # completely new initialization happened.  A full reset still clears
-        # it together with the normal telemetry below.
-        if reset_data:
+        # The 4409 response describes installed batteries rather than volatile
+        # power telemetry. A reconnect-timeout reset invalidates the latter but
+        # must retain known topology until the freshly negotiated session can
+        # refresh it. An explicit full reset still clears all metadata.
+        if reset_data and not preserve_sb3_battery_metadata:
             self._sb3_battery_metadata = None
             self._sb3_firmware_metadata = {}
             self._sb3_battery_firmware_versions = ()

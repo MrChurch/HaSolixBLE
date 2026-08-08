@@ -97,6 +97,47 @@ def test_sb3_new_firmware_uses_6a_battery_metadata_marker() -> None:
     assert device.expansion_battery_1_percentage == 80
 
 
+def test_sb3_reconnect_timeout_keeps_last_verified_battery_topology() -> None:
+    """A reconnect timeout must not erase expansion entities permanently."""
+    device = Solarbank3.__new__(Solarbank3)
+    metadata = b"APCDJF4G72230095" + bytes((0x6A, 0x01, 0x02, 25, 0x02, 80, 0x64))
+    device._data = {"a3": bytes((0x01, 77))}
+    device._last_data_timestamp = object()
+    device._fragment_buffers = {}
+    device._fragment_totals = {}
+    device._shared_secret = b"old-session"
+    device._sb3_session_ready = True
+    device._sb3_identity_authenticated = True
+    device._sb3_raw_packets = {"4409": metadata}
+    device._sb3_battery_metadata = metadata
+    device._sb3_firmware_metadata = {"a2": "v1.0.7.1"}
+    device._sb3_battery_firmware_versions = ("v0.3.5.5",)
+    device._sb3_raw_fragments = {}
+    device._sb3_handshake = object()
+    device._sb3_checkpoint_complete = True
+    device._sb3_transcript_path = "/tmp/transcript.json"
+    device._sb2ac_session_ready = False
+    device._sb2ac_raw_packets = {}
+    device._sb2ac_raw_fragments = {}
+    device._sb2ac_handshake = None
+    device._last_packet_timestamp = 1.0
+    device._negotiation_timestamp = 2.0
+    device._last_negotiation_request_timestamp = 3.0
+    device._command_characteristic = object()
+    device._telemetry_characteristic = object()
+    device._packet_futures = {}
+
+    device._reset_session(
+        reset_data=True,
+        preserve_sb3_battery_metadata=True,
+    )
+
+    assert device._data is None
+    assert device._sb3_battery_metadata == metadata
+    assert device.expansion_battery_1_percentage == 80
+    assert device._sb3_firmware_metadata == {"a2": "v1.0.7.1"}
+
+
 def test_sb3_schedule_target_syncs_from_live_device_value() -> None:
     """The HA slider starts at the active device schedule, not zero."""
     device = Solarbank3.__new__(Solarbank3)
