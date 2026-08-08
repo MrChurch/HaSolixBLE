@@ -1179,10 +1179,15 @@ class SolixBLEDevice:
         if payload:
             fragment_index = (payload[0] >> 4) & 0x0F
             fragment_total = payload[0] & 0x0F
-            # Captured c840/c405 messages use 0x12 then 0x22. Guard the
-            # heuristic so ordinary payload bytes such as 0xA5 are not
-            # mistaken for fragment markers.
-            if 1 <= fragment_index <= fragment_total <= 4:
+            # Captured c840/c405 messages use 0x12 then 0x22. A one-part
+            # payload has no fragment header: accepting 0x11 here would
+            # strip a legitimate first AES-GCM ciphertext byte. This was
+            # observed on a second SB3 whose 4409 battery response began
+            # with 0x11, leaving an unauthenticatable 182-byte payload.
+            if (
+                1 <= fragment_index <= fragment_total
+                and 2 <= fragment_total <= 4
+            ):
                 fragments = self._sb3_raw_fragments.setdefault(cmd_hex, {})
                 if fragment_index == 1:
                     fragments.clear()

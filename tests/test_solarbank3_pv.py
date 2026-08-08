@@ -1,5 +1,6 @@
 """Solarbank 3 PV telemetry tests."""
 
+import asyncio
 import struct
 
 from custom_components.solix_ble.SolixBLE.devices.solarbank3 import Solarbank3
@@ -95,6 +96,46 @@ def test_sb3_new_firmware_uses_6a_battery_metadata_marker() -> None:
     assert device.expansion_battery_1_serial_number == "APCDJF4G72230095"
     assert device.expansion_battery_1_temperature == 25
     assert device.expansion_battery_1_percentage == 80
+
+
+def test_sb3_single_payload_starting_with_11_is_not_a_fragment() -> None:
+    """A one-part 4409 blob may legitimately start with ciphertext byte 0x11."""
+    device = Solarbank3.__new__(Solarbank3)
+    payload = b"\x11" + b"x" * 182
+    device._sb3_raw_packets = {}
+    device._sb3_raw_fragments = {}
+    device._sb3_handshake = None
+
+    asyncio.run(
+        device._process_sb3_raw_telemetry(
+            b"\x03\x01\x0f", b"\x44\x09", payload,
+        ),
+    )
+
+    assert device._sb3_raw_packets["4409"] == payload
+    assert device._sb3_raw_fragments == {}
+
+
+def test_sb3_two_part_payload_still_reassembles_fragments() -> None:
+    """Keep the verified 0x12/0x22 transport framing intact."""
+    device = Solarbank3.__new__(Solarbank3)
+    device._sb3_raw_packets = {}
+    device._sb3_raw_fragments = {}
+    device._sb3_handshake = None
+
+    asyncio.run(
+        device._process_sb3_raw_telemetry(
+            b"\x03\x01\x0f", b"\xc4\x05", b"\x12first",
+        ),
+    )
+    asyncio.run(
+        device._process_sb3_raw_telemetry(
+            b"\x03\x01\x0f", b"\xc4\x05", b"\x22second",
+        ),
+    )
+
+    assert device._sb3_raw_packets["c405"] == b"firstsecond"
+    assert device._sb3_raw_fragments == {}
 
 
 def test_sb3_reconnect_timeout_keeps_last_verified_battery_topology() -> None:
