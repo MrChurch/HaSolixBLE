@@ -11,6 +11,7 @@ from custom_components.solix_ble.SolixBLE.sb3_protocol import (
     build_security_auth_packet,
     build_security_auth_plaintext,
     build_sb3_max_load_plaintext,
+    build_sb3_pv_max_plaintext,
     build_sb3_schedule_plaintext,
     build_telemetry_request_plaintext,
     parse_packet,
@@ -111,6 +112,20 @@ def test_sb3_max_load_rejects_values_not_exposed_by_the_app() -> None:
 
     with pytest.raises(ValueError):
         build_sb3_max_load_plaintext(400)
+
+
+def test_sb3_pv_max_matches_the_new_android_capture() -> None:
+    """The app sends a standalone a7 TLV for the 2000/3600 W MPPT toggle."""
+    assert build_sb3_pv_max_plaintext(2000) == bytes.fromhex("a10121a70302d007")
+    assert build_sb3_pv_max_plaintext(3600) == bytes.fromhex("a10121a70302100e")
+
+
+def test_sb3_pv_max_rejects_unseen_values() -> None:
+    """Do not turn the verified two-option app control into a free number field."""
+    import pytest
+
+    with pytest.raises(ValueError):
+        build_sb3_pv_max_plaintext(2400)
 
 
 def test_sb3_schedule_rejects_non_50_watt_targets() -> None:

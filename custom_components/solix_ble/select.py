@@ -15,6 +15,7 @@ from .SolixBLE.devices.solarbank2 import MaxLoadSB2
 from .SolixBLE.device import SolixBLEDevice
 from .SolixBLE.sb3_protocol import (
     SB3_MAX_LOAD_VALUES,
+    SB3_PV_MAX_VALUES,
     SB3_SCHEDULE_MODE_CHARGE,
     SB3_SCHEDULE_MODE_DISCHARGE,
 )
@@ -28,7 +29,11 @@ async def async_setup_entry(
     device = config_entry.runtime_data
     if isinstance(device, Solarbank3):
         async_add_entities(
-            [Solarbank3MaxLoadSelect(device), Solarbank3ScheduleModeSelect(device)]
+            [
+                Solarbank3MaxLoadSelect(device),
+                Solarbank3PVMaxSelect(device),
+                Solarbank3ScheduleModeSelect(device),
+            ]
         )
     elif isinstance(device, Solarbank2AC):
         _disable_unsupported_sb2ac_mode_select(hass, config_entry, device)
@@ -190,5 +195,62 @@ class Solarbank3MaxLoadSelect(RestoreEntity, SelectEntity):
         if option not in self._attr_options:
             raise ValueError(f"unsupported Solarbank 3 maximum load: {option}")
         self._device.set_max_load_target(int(option))
+        self._attr_current_option = option
+        self.async_write_ha_state()
+
+
+class Solarbank3PVMaxSelect(RestoreEntity, SelectEntity):
+    """Staged MPPT maximum-input selector for the Solarbank 3."""
+
+    _attr_has_entity_name = True
+    _attr_name = "PV maximum input"
+    _attr_icon = "mdi:solar-power-variant-outline"
+
+    def __init__(self, device: Solarbank3) -> None:
+        """Initialize the selector with only app-captured options."""
+        self._device = device
+        self._attr_unique_id = f"{device.address}_pv_maximum_input"
+        self._attr_device_info = DeviceInfo(
+            name=device.name,
+            connections={(CONNECTION_BLUETOOTH, device.address)},
+        )
+        self._attr_options = [str(value) for value in SB3_PV_MAX_VALUES]
+        self._attr_current_option = str(device.pv_max_target)
+
+    @property
+    def available(self) -> bool:
+        """Return whether the authenticated BLE device is available."""
+        return self._device.available
+
+    async def async_added_to_hass(self) -> None:
+        """Use live d5 telemetry first, then retain a harmless staged choice."""
+        await super().async_added_to_hass()
+        self._device.add_callback(self._state_change_callback)
+        live_target = self._device.sync_pv_max_target()
+        if live_target is not None:
+            self._attr_current_option = str(live_target)
+            return
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in self._attr_options:
+            self._device.set_pv_max_target(int(last_state.state), staged=False)
+            self._attr_current_option = last_state.state
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister the telemetry callback."""
+        self._device.remove_callback(self._state_change_callback)
+
+    def _state_change_callback(self) -> None:
+        """Follow verified d5 telemetry unless the user has staged a change."""
+        live_target = self._device.sync_pv_max_target()
+        if live_target is None:
+            return
+        self._attr_current_option = str(live_target)
+        self.async_write_ha_state()
+
+    async def async_select_option(self, option: str) -> None:
+        """Stage the MPPT limit; its apply button performs the BLE write."""
+        if option not in self._attr_options:
+            raise ValueError(f"unsupported Solarbank 3 PV maximum input: {option}")
+        self._device.set_pv_max_target(int(option))
         self._attr_current_option = option
         self.async_write_ha_state()

@@ -193,6 +193,17 @@ def test_sb3_schedule_target_syncs_from_live_device_value() -> None:
     assert device.schedule_power_target == 300
 
 
+def test_sb3_pv_max_target_syncs_from_live_d5_value() -> None:
+    """The MPPT selector follows only verified 2000/3600 W telemetry."""
+    device = Solarbank3.__new__(Solarbank3)
+    device._data = {"d5": bytes.fromhex("02d007")}
+    device._pv_max_target = 3600
+    device._pv_max_target_staged = False
+
+    assert device.sync_pv_max_target() == 2000
+    assert device.pv_max_target == 2000
+
+
 def test_sb3_cached_schedule_is_not_used_before_current_session_refresh() -> None:
     """A power-cycle must not make an old HA slider value writeable."""
     device = Solarbank3.__new__(Solarbank3)

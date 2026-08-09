@@ -40,6 +40,10 @@ SB3_DEFAULT_CLIENT_ID = "79ebed35-dc9c-4904-b40c-72c4e8363a10"
 SB3_SET_SCHEDULE_COMMAND = bytes.fromhex("405e")
 SB3_SET_MAX_LOAD_COMMAND = bytes.fromhex("4080")
 SB3_MAX_LOAD_VALUES = (350, 600, 800, 1200)
+#: The only MPPT maximum-input options captured from the A17C5 Android app.
+#: Do not expose a free-form number control until additional device values have
+#: been recorded and verified.
+SB3_PV_MAX_VALUES = (2000, 3600)
 SB3_SCHEDULE_MODE_DISCHARGE = "discharge"
 SB3_SCHEDULE_MODE_CHARGE = "charge"
 SB3_SCHEDULE_MODES = (SB3_SCHEDULE_MODE_DISCHARGE, SB3_SCHEDULE_MODE_CHARGE)
@@ -398,6 +402,21 @@ def build_sb3_max_load_plaintext(max_load_w: int) -> bytes:
         + max_load_w.to_bytes(2, "little")
         + b"\xa3\x03\x02\x00\x00"
     )
+
+
+def build_sb3_pv_max_plaintext(pv_max_w: int) -> bytes:
+    """Build the captured A17C5 ``4080`` MPPT maximum-input payload.
+
+    The Android app sent this exact standalone ``a7`` TLV while toggling the
+    MPPT maximum input between 2000 W and 3600 W.  The shared command sender
+    appends the current ``fe0503`` replay timestamp before AES-GCM encryption.
+    """
+    if not isinstance(pv_max_w, int) or isinstance(pv_max_w, bool):
+        raise TypeError("pv_max_w must be an integer")
+    if pv_max_w not in SB3_PV_MAX_VALUES:
+        supported = ", ".join(str(value) for value in SB3_PV_MAX_VALUES)
+        raise ValueError(f"pv_max_w must be one of: {supported} W")
+    return b"\xa1\x01\x21\xa7\x03\x02" + pv_max_w.to_bytes(2, "little")
 
 
 async def load_sb3_account_id(path: Path = SB3_ACCOUNT_ID_PATH) -> str | None:

@@ -12,11 +12,13 @@ from ..const import DEFAULT_METADATA_FLOAT, DEFAULT_METADATA_STRING
 from ..device import SolixBLEDevice
 from ..sb3_protocol import (
     SB3_MAX_LOAD_VALUES,
+    SB3_PV_MAX_VALUES,
     SB3_SCHEDULE_MODE_CHARGE,
     SB3_SCHEDULE_MODE_DISCHARGE,
     SB3_SET_MAX_LOAD_COMMAND,
     SB3_SET_SCHEDULE_COMMAND,
     build_sb3_max_load_plaintext,
+    build_sb3_pv_max_plaintext,
     build_sb3_schedule_plaintext,
 )
 
@@ -52,6 +54,8 @@ class Solarbank3(SolixBLEDevice):
         self._schedule_power_target_staged = False
         self._schedule_mode = SB3_SCHEDULE_MODE_DISCHARGE
         self._max_load_target = 1200
+        self._pv_max_target = 3600
+        self._pv_max_target_staged = False
 
     @property
     def schedule_power_target(self) -> int:
@@ -121,6 +125,46 @@ class Solarbank3(SolixBLEDevice):
             )
         self._max_load_target = max_load_w
 
+    @property
+    def pv_max_target(self) -> int:
+        """Return the staged MPPT limit or its current telemetry value."""
+        if not self._pv_max_target_staged:
+            live_target = self._live_pv_max_target()
+            if live_target is not None:
+                return live_target
+        return self._pv_max_target
+
+    def _live_pv_max_target(self) -> int | None:
+        """Return a validated MPPT input limit from field ``d5``."""
+        live_target = self.grid_to_home_power
+        return live_target if live_target in SB3_PV_MAX_VALUES else None
+
+    @property
+    def sb3_pv_max_telemetry_ready(self) -> bool:
+        """Whether this BLE session reported a valid current MPPT limit."""
+        return self._live_pv_max_target() is not None
+
+    def set_pv_max_target(self, pv_max_w: int, *, staged: bool = True) -> None:
+        """Stage one of the captured MPPT maximum-input limits."""
+        if pv_max_w not in SB3_PV_MAX_VALUES:
+            raise ValueError(
+                "pv_max_w must be one of: "
+                + ", ".join(str(value) for value in SB3_PV_MAX_VALUES)
+                + " W"
+            )
+        self._pv_max_target = pv_max_w
+        self._pv_max_target_staged = staged
+
+    def sync_pv_max_target(self) -> int | None:
+        """Refresh the selector from ``d5`` without discarding a staged value."""
+        if self._pv_max_target_staged:
+            return None
+        live_target = self._live_pv_max_target()
+        if live_target is None:
+            return None
+        self._pv_max_target = live_target
+        return live_target
+
     async def set_schedule(
         self,
         power_w: int,
@@ -154,6 +198,16 @@ class Solarbank3(SolixBLEDevice):
         """Set the Solarbank 3 maximum output/load limit via ``4080``."""
         payload = build_sb3_max_load_plaintext(max_load_w)
         await self._send_sb3_command(SB3_SET_MAX_LOAD_COMMAND, payload)
+
+    async def set_pv_max(self, pv_max_w: int) -> None:
+        """Set the Solarbank 3 MPPT maximum input via the captured ``4080`` TLV."""
+        if not self.sb3_pv_max_telemetry_ready:
+            raise ConnectionError(
+                "Solarbank 3 MPPT limit has not been refreshed in this BLE session"
+            )
+        payload = build_sb3_pv_max_plaintext(pv_max_w)
+        await self._send_sb3_command(SB3_SET_MAX_LOAD_COMMAND, payload)
+        self.set_pv_max_target(pv_max_w, staged=False)
 
     @property
     def serial_number(self) -> str:

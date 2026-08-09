@@ -22,7 +22,11 @@ async def async_setup_entry(
     device = config_entry.runtime_data
     if isinstance(device, Solarbank3):
         async_add_entities(
-            [Solarbank3ScheduleApplyButton(device), Solarbank3MaxLoadApplyButton(device)]
+            [
+                Solarbank3ScheduleApplyButton(device),
+                Solarbank3MaxLoadApplyButton(device),
+                Solarbank3PVMaxApplyButton(device),
+            ]
         )
     elif isinstance(device, Solarbank2AC):
         async_add_entities(
@@ -132,3 +136,29 @@ class Solarbank3MaxLoadApplyButton(ButtonEntity):
     async def async_press(self) -> None:
         """Write the staged maximum-load limit."""
         await self._device.set_max_load(self._device.max_load_target)
+
+
+class Solarbank3PVMaxApplyButton(ButtonEntity):
+    """Apply the staged Solarbank 3 MPPT maximum input."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Apply PV maximum input"
+    _attr_icon = "mdi:solar-power-variant"
+
+    def __init__(self, device: Solarbank3) -> None:
+        """Initialize the MPPT maximum-input apply button."""
+        self._device = device
+        self._attr_unique_id = f"{device.address}_pv_maximum_input_apply"
+        self._attr_device_info = DeviceInfo(
+            name=device.name,
+            connections={(CONNECTION_BLUETOOTH, device.address)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Enable writes only after the current session reported field d5."""
+        return self._device.negotiated and self._device.sb3_pv_max_telemetry_ready
+
+    async def async_press(self) -> None:
+        """Write the captured standalone ``a7`` limit payload."""
+        await self._device.set_pv_max(self._device.pv_max_target)
