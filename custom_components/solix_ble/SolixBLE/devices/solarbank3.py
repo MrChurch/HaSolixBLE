@@ -56,9 +56,23 @@ class Solarbank3(SolixBLEDevice):
     @property
     def schedule_power_target(self) -> int:
         """Return the staged target or live device schedule when unsaved."""
-        if not self._schedule_power_target_staged and self._data is not None:
+        if (
+            not self._schedule_power_target_staged
+            and self.sb3_schedule_telemetry_ready
+            and self._data is not None
+        ):
             return self.schedule_power
         return self._schedule_power_target
+
+    @property
+    def sb3_schedule_telemetry_ready(self) -> bool:
+        """Whether ``b9`` was received in the current BLE session.
+
+        A power-cycled Solarbank can accept BLE authentication before it has
+        restored and reported its active plan.  Cached Home Assistant state is
+        deliberately not sufficient to authorize a schedule write.
+        """
+        return self._sb3_schedule_telemetry_ready
 
     def set_schedule_power_target(self, power_w: int, *, staged: bool = True) -> None:
         """Stage a schedule target without writing the device."""
@@ -71,7 +85,11 @@ class Solarbank3(SolixBLEDevice):
 
     def sync_schedule_power_target(self) -> int | None:
         """Use the live ``b9`` schedule as the slider's initial value."""
-        if self._data is None or "b9" not in self._data:
+        if (
+            not self.sb3_schedule_telemetry_ready
+            or self._data is None
+            or "b9" not in self._data
+        ):
             return None
         self._schedule_power_target_staged = False
         self._schedule_power_target = self.schedule_power
@@ -118,6 +136,10 @@ class Solarbank3(SolixBLEDevice):
         :meth:`SolixBLEDevice._send_command` adds the current replay timestamp
         and applies the negotiated AES-GCM session encryption.
         """
+        if not self.sb3_schedule_telemetry_ready:
+            raise ConnectionError(
+                "Solarbank 3 schedule has not been refreshed in this BLE session"
+            )
         payload = build_sb3_schedule_plaintext(
             power_w,
             start_minutes=start_minutes,

@@ -132,7 +132,10 @@ class Solarbank3ScheduleNumber(RestoreEntity, NumberEntity):
                 value = self._device.schedule_power_target
             if 0 <= value <= 1200:
                 value = int(round(value / 50) * 50)
-                self._device.set_schedule_power_target(value)
+                # This is only a display fallback.  Do not treat persisted HA
+                # state as a deliberate new plan after the Solarbank was
+                # power-cycled; fresh b9 telemetry will replace it.
+                self._device.set_schedule_power_target(value, staged=False)
                 self._attr_native_value = value
 
     async def async_set_native_value(self, value: float) -> None:

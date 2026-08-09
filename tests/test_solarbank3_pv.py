@@ -148,6 +148,7 @@ def test_sb3_reconnect_timeout_keeps_last_verified_battery_topology() -> None:
     device._fragment_totals = {}
     device._shared_secret = b"old-session"
     device._sb3_session_ready = True
+    device._sb3_schedule_telemetry_ready = True
     device._sb3_identity_authenticated = True
     device._sb3_raw_packets = {"4409": metadata}
     device._sb3_battery_metadata = metadata
@@ -174,6 +175,7 @@ def test_sb3_reconnect_timeout_keeps_last_verified_battery_topology() -> None:
     )
 
     assert device._data is None
+    assert device._sb3_schedule_telemetry_ready is False
     assert device._sb3_battery_metadata == metadata
     assert device.expansion_battery_1_percentage == 80
     assert device._sb3_firmware_metadata == {"a2": "v1.0.7.1"}
@@ -185,9 +187,35 @@ def test_sb3_schedule_target_syncs_from_live_device_value() -> None:
     device._data = {"b9": bytes.fromhex("022c01")}
     device._schedule_power_target = 0
     device._schedule_power_target_staged = False
+    device._sb3_schedule_telemetry_ready = True
 
     assert device.sync_schedule_power_target() == 300
     assert device.schedule_power_target == 300
+
+
+def test_sb3_cached_schedule_is_not_used_before_current_session_refresh() -> None:
+    """A power-cycle must not make an old HA slider value writeable."""
+    device = Solarbank3.__new__(Solarbank3)
+    device._data = {"b9": bytes.fromhex("022c01")}
+    device._schedule_power_target = 450
+    device._schedule_power_target_staged = False
+    device._sb3_schedule_telemetry_ready = False
+
+    assert device.sync_schedule_power_target() is None
+    assert device.schedule_power_target == 450
+
+
+def test_sb3_rejects_schedule_write_before_current_session_refresh() -> None:
+    """405e is fail-safe until fresh ``b9`` telemetry arrives."""
+    device = Solarbank3.__new__(Solarbank3)
+    device._sb3_schedule_telemetry_ready = False
+
+    try:
+        asyncio.run(device.set_schedule(300))
+    except ConnectionError as error:
+        assert "not been refreshed" in str(error)
+    else:
+        raise AssertionError("schedule write unexpectedly accepted")
 
 
 def test_sb3_total_power_in_uses_charge_telemetry() -> None:

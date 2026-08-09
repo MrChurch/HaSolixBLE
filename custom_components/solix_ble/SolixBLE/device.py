@@ -172,6 +172,11 @@ class SolixBLEDevice:
         self._command_characteristic = None
         self._telemetry_characteristic = None
         self._sb3_session_ready: bool = False
+        # A Home Assistant entity may retain its previous value while an SB3
+        # has been power-cycled.  Keep the live schedule read separate from
+        # the cached telemetry so a 405e write can only use the plan reported
+        # during the current authenticated session.
+        self._sb3_schedule_telemetry_ready: bool = False
         self._sb3_raw_packets: dict[str, bytes] = {}
         # 4409 is the Solarbank 3 battery topology/detail response.  It has
         # a different schema from c405/c840 telemetry and must not be merged
@@ -991,6 +996,16 @@ class SolixBLEDevice:
     async def _process_telemetry(self, parameters: dict[str, bytes]) -> None:
         """Process telemetry data from the device."""
 
+        # Inspect the incoming frame before it is merged with cached data.
+        # Otherwise an old ``b9`` from before a power-cycle would look like a
+        # fresh schedule value on the next connection.
+        received_sb3_schedule = (
+            self._is_solarbank3_transport and "b9" in parameters
+        )
+        schedule_ready_changed = (
+            received_sb3_schedule and not self._sb3_schedule_telemetry_ready
+        )
+
         if self._is_solarbank3_transport and self._data is not None:
             parameters = {**self._data, **parameters}
 
@@ -1044,9 +1059,11 @@ class SolixBLEDevice:
         # Update internal parameters
         self._data = parameters
         self._last_data_timestamp = datetime.now()
+        if received_sb3_schedule:
+            self._sb3_schedule_telemetry_ready = True
 
         # Run callbacks if state changed
-        if state_changed:
+        if state_changed or schedule_ready_changed:
             if not self._is_solarbank3_transport:
                 _LOGGER.debug(self)
             self._run_state_changed_callbacks()
@@ -1870,6 +1887,7 @@ class SolixBLEDevice:
         self._fragment_totals = {}
         self._shared_secret = None
         self._sb3_session_ready = False
+        self._sb3_schedule_telemetry_ready = False
         self._sb3_identity_authenticated = False
         self._sb3_raw_packets = {}
         # The 4409 response describes installed batteries rather than volatile

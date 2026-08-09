@@ -94,8 +94,11 @@ class Solarbank3ScheduleApplyButton(ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether the authenticated BLE session can accept writes."""
-        return self._device.negotiated
+        """Enable writes only after this session reported its active plan."""
+        return (
+            self._device.negotiated
+            and self._device.sb3_schedule_telemetry_ready
+        )
 
     async def async_press(self) -> None:
         """Write the staged target as a uniform seven-day schedule."""
