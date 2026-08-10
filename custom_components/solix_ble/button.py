@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -11,6 +13,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .SolixBLE import Solarbank2AC, Solarbank3
 from .SolixBLE.devices.solarbank2 import MaxLoadSB2
 from .SolixBLE.device import SolixBLEDevice
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -136,6 +140,12 @@ class Solarbank3ScheduleRecreateButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Write the staged target as a new 00:00--24:00 seven-day plan."""
+        _LOGGER.warning(
+            "SB3 schedule recovery requested: address=%s target=%sW mode=%s",
+            self._device.address,
+            self._device.schedule_power_target,
+            self._device.schedule_mode,
+        )
         await self._device.recreate_full_day_schedule(
             self._device.schedule_power_target,
             mode=self._device.schedule_mode,

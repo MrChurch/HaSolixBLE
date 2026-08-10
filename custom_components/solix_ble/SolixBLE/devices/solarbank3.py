@@ -4,6 +4,7 @@
 
 """
 
+import logging
 import re
 
 from bleak.backends.device import BLEDevice
@@ -21,6 +22,8 @@ from ..sb3_protocol import (
     build_sb3_pv_max_plaintext,
     build_sb3_schedule_plaintext,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Solarbank3(SolixBLEDevice):
@@ -201,6 +204,13 @@ class Solarbank3(SolixBLEDevice):
         explicit recovery action can repair a bank that no longer reports a
         plan after it was powered off.
         """
+        _LOGGER.warning(
+            "SB3 schedule recovery building full-week plan: address=%s "
+            "target=%sW mode=%s",
+            self.address,
+            power_w,
+            self._schedule_mode if mode is None else mode,
+        )
         await self._write_schedule(power_w, mode=mode)
 
     async def _write_schedule(
@@ -217,6 +227,12 @@ class Solarbank3(SolixBLEDevice):
             start_minutes=start_minutes,
             end_minutes=end_minutes,
             mode=self._schedule_mode if mode is None else mode,
+        )
+        _LOGGER.debug(
+            "SB3 schedule write: address=%s command=%s payload_length=%s",
+            self.address,
+            SB3_SET_SCHEDULE_COMMAND.hex(),
+            len(payload),
         )
         await self._send_sb3_command(SB3_SET_SCHEDULE_COMMAND, payload)
         self._schedule_power_target = power_w

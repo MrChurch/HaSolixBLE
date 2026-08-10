@@ -242,7 +242,7 @@ class SolixBLEDevice:
                 "device disconnected or command characteristic unavailable"
             )
         _LOGGER.debug(
-            "TX %s packet: %s",
+            "TX %s packet: address=%s command=%s packet=%s",
             (
                 "SB3 dynamic"
                 if self._is_solarbank3_transport
@@ -250,6 +250,8 @@ class SolixBLEDevice:
                 if self._is_solarbank2ac_dynamic_transport
                 else "Solix"
             ),
+            self.address,
+            packet[7:9].hex() if len(packet) >= 9 else "unknown",
             packet.hex(),
         )
         await self._client.write_gatt_char(
@@ -1227,7 +1229,8 @@ class SolixBLEDevice:
                 )
                 if _is_sb3_command_acknowledgement(plaintext):
                     _LOGGER.debug(
-                        "SB3 command acknowledgement RX cmd=%s status=%s",
+                        "SB3 command acknowledgement RX address=%s cmd=%s status=%s",
+                        self.address,
                         cmd_hex,
                         plaintext[-1:].hex(),
                     )
