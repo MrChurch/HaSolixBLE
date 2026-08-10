@@ -24,6 +24,7 @@ async def async_setup_entry(
         async_add_entities(
             [
                 Solarbank3ScheduleApplyButton(device),
+                Solarbank3ScheduleRecreateButton(device),
                 Solarbank3MaxLoadApplyButton(device),
                 Solarbank3PVMaxApplyButton(device),
             ]
@@ -107,6 +108,35 @@ class Solarbank3ScheduleApplyButton(ButtonEntity):
     async def async_press(self) -> None:
         """Write the staged target as a uniform seven-day schedule."""
         await self._device.set_schedule(
+            self._device.schedule_power_target,
+            mode=self._device.schedule_mode,
+        )
+
+
+class Solarbank3ScheduleRecreateButton(ButtonEntity):
+    """Recreate a missing all-day Solarbank 3 plan after a power cycle."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Recreate full-day schedule"
+    _attr_icon = "mdi:calendar-sync"
+
+    def __init__(self, device: Solarbank3) -> None:
+        """Initialize the explicit schedule-recovery control."""
+        self._device = device
+        self._attr_unique_id = f"{device.address}_schedule_recreate"
+        self._attr_device_info = DeviceInfo(
+            name=device.name,
+            connections={(CONNECTION_BLUETOOTH, device.address)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Allow recovery after authentication even when b9 is absent."""
+        return self._device.negotiated
+
+    async def async_press(self) -> None:
+        """Write the staged target as a new 00:00--24:00 seven-day plan."""
+        await self._device.recreate_full_day_schedule(
             self._device.schedule_power_target,
             mode=self._device.schedule_mode,
         )

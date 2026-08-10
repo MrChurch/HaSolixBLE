@@ -184,6 +184,34 @@ class Solarbank3(SolixBLEDevice):
             raise ConnectionError(
                 "Solarbank 3 schedule has not been refreshed in this BLE session"
             )
+        await self._write_schedule(
+            power_w,
+            start_minutes=start_minutes,
+            end_minutes=end_minutes,
+            mode=mode,
+        )
+
+    async def recreate_full_day_schedule(
+        self, power_w: int, *, mode: str | None = None
+    ) -> None:
+        """Create a fresh seven-day plan when a power-cycled bank has none.
+
+        This is deliberately separate from :meth:`set_schedule`: the normal
+        Apply button remains protected by fresh ``b9`` telemetry, while this
+        explicit recovery action can repair a bank that no longer reports a
+        plan after it was powered off.
+        """
+        await self._write_schedule(power_w, mode=mode)
+
+    async def _write_schedule(
+        self,
+        power_w: int,
+        *,
+        start_minutes: int = 0,
+        end_minutes: int = 1440,
+        mode: str | None = None,
+    ) -> None:
+        """Write one uniform full-week schedule through the authenticated session."""
         payload = build_sb3_schedule_plaintext(
             power_w,
             start_minutes=start_minutes,

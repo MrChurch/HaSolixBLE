@@ -229,6 +229,28 @@ def test_sb3_rejects_schedule_write_before_current_session_refresh() -> None:
         raise AssertionError("schedule write unexpectedly accepted")
 
 
+def test_sb3_recreates_full_day_schedule_without_b9_telemetry() -> None:
+    """The manual recovery path restores a seven-day plan after a power cycle."""
+    device = Solarbank3.__new__(Solarbank3)
+    device._sb3_schedule_telemetry_ready = False
+    device._schedule_mode = "discharge"
+    device._schedule_power_target = 200
+    device._schedule_power_target_staged = True
+    sent: list[tuple[bytes, bytes]] = []
+
+    async def send(command: bytes, payload: bytes) -> None:
+        sent.append((command, payload))
+
+    device._send_sb3_command = send
+
+    asyncio.run(device.recreate_full_day_schedule(300))
+
+    assert sent[0][0] == bytes.fromhex("405e")
+    assert len(sent[0][1]) == 168
+    assert device._schedule_power_target == 300
+    assert device._schedule_power_target_staged is False
+
+
 def test_sb3_total_power_in_uses_charge_telemetry() -> None:
     """The charge capture's ``bc`` field exposes total input power."""
     device = Solarbank3.__new__(Solarbank3)
