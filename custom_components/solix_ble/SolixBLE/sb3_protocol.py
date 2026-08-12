@@ -384,6 +384,37 @@ def build_sb3_schedule_plaintext(
     return bytes(schedule)
 
 
+def build_sb3_clear_schedule_plaintext(*, fd_token: bytes | None = None) -> bytes:
+    """Build the A17C5 ``405e`` payload that removes all weekday slots.
+
+    This is not a zero-watt schedule.  The Android app sends this compact
+    112-byte body before creating a replacement plan: it clears the 28
+    schedule tags (``a3`` through ``be``) and then appends the normal fresh
+    ``fd0503`` token.  The common ``fe0503`` replay timestamp is appended by
+    :meth:`SolixBLEDevice._send_sb3_command`.
+
+    The layout was recovered from a single authenticated app session that
+    wrote an existing plan, deleted it, and created a new 550 W plan.  The
+    two long plan writes and this short clear write shared the same AES-GCM
+    session, allowing the complete clear plaintext to be verified.
+    """
+    if fd_token is None:
+        fd_token = secrets.token_bytes(4)
+    if len(fd_token) != 4:
+        raise ValueError("fd_token must contain exactly four bytes")
+
+    payload = bytearray(b"\xa1\x01\x21\xa2\x02\x01\x01")
+    for tag in range(0xA3, 0xBF):
+        payload.extend(
+            bytes((tag,))
+            + (b"\x02\x01\x00" if (tag - 0xA3) % 2 == 0 else b"\x01\x04")
+        )
+    payload.extend(b"\xfd\x05\x03" + fd_token)
+    if len(payload) != 112:
+        raise AssertionError(f"unexpected SB3 clear-schedule body length: {len(payload)}")
+    return bytes(payload)
+
+
 def build_sb3_max_load_plaintext(max_load_w: int) -> bytes:
     """Build the Solarbank 3 ``4080`` maximum-load payload.
 

@@ -19,9 +19,11 @@ package = ModuleType(PACKAGE_NAME)
 package.__path__ = [str(PACKAGE_PATH)]
 sys.modules[PACKAGE_NAME] = package
 device_module = import_module(f"{PACKAGE_NAME}.device")
+protocol_module = import_module(f"{PACKAGE_NAME}.sb3_protocol")
 
 _is_complete_sb3_tlv_payload = device_module._is_complete_sb3_tlv_payload
 _is_sb3_command_acknowledgement = device_module._is_sb3_command_acknowledgement
+build_sb3_clear_schedule_plaintext = protocol_module.build_sb3_clear_schedule_plaintext
 
 
 def test_sb3_command_acknowledgement_matches_observed_payload() -> None:
@@ -49,3 +51,16 @@ def test_sb3_tlv_validation_rejects_empty_or_truncated_payloads() -> None:
     assert not _is_complete_sb3_tlv_payload(bytes.fromhex("a1"))
     assert not _is_complete_sb3_tlv_payload(bytes.fromhex("01a10131"))
     assert not _is_complete_sb3_tlv_payload(bytes.fromhex("00b90296"))
+
+
+def test_sb3_clear_schedule_matches_the_authenticated_app_capture() -> None:
+    """The compact 405e clear body uses disabled pairs from a3 through be."""
+    payload = build_sb3_clear_schedule_plaintext(fd_token=bytes.fromhex("29a271cc"))
+    assert payload == bytes.fromhex(
+        "a10121a2020101"
+        "a3020100a40104a5020100a60104a7020100a80104"
+        "a9020100aa0104ab020100ac0104ad020100ae0104"
+        "af020100b00104b1020100b20104b3020100b40104"
+        "b5020100b60104b7020100b80104b9020100ba0104"
+        "bb020100bc0104bd020100be0104fd050329a271cc"
+    )

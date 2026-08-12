@@ -18,6 +18,7 @@ from ..sb3_protocol import (
     SB3_SCHEDULE_MODE_DISCHARGE,
     SB3_SET_MAX_LOAD_COMMAND,
     SB3_SET_SCHEDULE_COMMAND,
+    build_sb3_clear_schedule_plaintext,
     build_sb3_max_load_plaintext,
     build_sb3_pv_max_plaintext,
     build_sb3_schedule_plaintext,
@@ -205,11 +206,15 @@ class Solarbank3(SolixBLEDevice):
         plan after it was powered off.
         """
         _LOGGER.warning(
-            "SB3 schedule recovery building full-week plan: address=%s "
+            "SB3 schedule recovery clearing stale weekday slots and building "
+            "full-week plan: address=%s "
             "target=%sW mode=%s",
             self.address,
             power_w,
             self._schedule_mode if mode is None else mode,
+        )
+        await self._send_sb3_command(
+            SB3_SET_SCHEDULE_COMMAND, build_sb3_clear_schedule_plaintext()
         )
         await self._write_schedule(power_w, mode=mode)
 
