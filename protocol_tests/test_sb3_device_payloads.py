@@ -23,6 +23,7 @@ protocol_module = import_module(f"{PACKAGE_NAME}.sb3_protocol")
 
 _is_complete_sb3_tlv_payload = device_module._is_complete_sb3_tlv_payload
 _is_sb3_command_acknowledgement = device_module._is_sb3_command_acknowledgement
+_sb3_response_command = device_module._sb3_response_command
 build_sb3_clear_schedule_plaintext = protocol_module.build_sb3_clear_schedule_plaintext
 
 
@@ -36,6 +37,12 @@ def test_sb3_command_acknowledgement_rejects_similar_payloads() -> None:
     assert not _is_sb3_command_acknowledgement(bytes.fromhex("01a101"))
     assert not _is_sb3_command_acknowledgement(bytes.fromhex("01a1013100"))
     assert not _is_sb3_command_acknowledgement(bytes.fromhex("01a10231"))
+
+
+def test_sb3_response_command_uses_the_response_flag() -> None:
+    """Control requests must wait for their matching 0x08 response opcode."""
+    assert _sb3_response_command(bytes.fromhex("405e")) == bytes.fromhex("485e")
+    assert _sb3_response_command(bytes.fromhex("4080")) == bytes.fromhex("4880")
 
 
 def test_sb3_tlv_validation_accepts_complete_payloads() -> None:

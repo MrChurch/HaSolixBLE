@@ -64,6 +64,15 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+# A17C5 control writes are acknowledged with the encrypted response variant of
+# the request command (for example 405e -> 485e).  A distant BLE proxy can lose
+# a write without dropping the GATT connection, so a successful write call is
+# not sufficient evidence that the Solarbank received the setting.
+_SB3_COMMAND_ACK_PATTERN = b"\x03\x00\x0f"
+_SB3_COMMAND_ACK_TIMEOUT = 3.0
+_SB3_CONTROL_RECONNECT_TIMEOUT = 25.0
+
+
 def _is_complete_sb3_tlv_payload(payload: bytes) -> bool:
     """Return whether payload is a complete sequence of SB3 TLV parameters."""
     if not payload:
@@ -89,6 +98,13 @@ def _is_complete_sb3_tlv_payload(payload: bytes) -> bool:
 def _is_sb3_command_acknowledgement(payload: bytes) -> bool:
     """Return whether payload matches the observed short SB3 command ACK."""
     return len(payload) == 4 and payload[:3] == b"\x01\xa1\x01"
+
+
+def _sb3_response_command(command: bytes) -> bytes:
+    """Return the encrypted response command corresponding to an SB3 request."""
+    if len(command) != 2:
+        raise ValueError("Solarbank 3 command must contain exactly two bytes")
+    return bytes((command[0] | 0x08, command[1]))
 
 
 def _parse_sb3_firmware_payload(payload: bytes) -> dict[str, str]:
@@ -165,6 +181,10 @@ class SolixBLEDevice:
         self._last_negotiation_request_timestamp: float | None = None
         self._state_changed_callbacks: list[Callable[[], None]] = []
         self._packet_futures: dict[bytes, list[asyncio.Future]] = {}
+        # Commands must not overlap: a command acknowledgement identifies only
+        # the opcode, therefore two simultaneous 405e writes cannot be matched
+        # safely to their originating Home Assistant service calls.
+        self._sb3_command_lock = asyncio.Lock()
         self._auto_reconnect_task: asyncio.Task | None = None
         self._disconnect_event: asyncio.Event = asyncio.Event()
         self._connection_attempts: int = 0
@@ -1593,6 +1613,55 @@ class SolixBLEDevice:
         new_payload = payload + bytes.fromhex("fe0503") + new_timestamp
         await self._send_encrypted_packet(cmd, new_payload)
 
+    def _sb3_control_session_ready(self) -> bool:
+        """Return whether a current authenticated SB3 control session exists."""
+        handshake = self._sb3_handshake
+        return bool(
+            self.negotiated
+            and handshake is not None
+            and handshake.session_ready
+            and handshake.session_key is not None
+            and handshake.session_nonce is not None
+        )
+
+    async def _wait_for_sb3_control_session(self) -> None:
+        """Wait for the normal reconnect worker to negotiate a fresh SB3 session."""
+        deadline = time.monotonic() + _SB3_CONTROL_RECONNECT_TIMEOUT
+        while time.monotonic() < deadline:
+            if self._sb3_control_session_ready():
+                return
+            await asyncio.sleep(0.25)
+        raise ConnectionError(
+            "Solarbank 3 did not re-establish an authenticated BLE session "
+            "for the control command"
+        )
+
+    async def _reconnect_sb3_for_control_retry(self, cmd: bytes) -> None:
+        """Request a clean reconnect after an SB3 command was not acknowledged."""
+        _LOGGER.warning(
+            "SB3 command acknowledgement missing; reconnecting once before retry: "
+            "address=%s command=%s",
+            self.address,
+            cmd.hex(),
+        )
+
+        # Signal the established reconnect worker before closing the current
+        # client.  This also covers the common proxy failure where a write is
+        # lost but Bleak still considers the GATT link connected.
+        self._disconnect_event.set()
+        client = self._client
+        if client is not None and getattr(client, "is_connected", False):
+            try:
+                await client.disconnect()
+            except (BleakError, OSError):
+                _LOGGER.debug(
+                    "SB3 control retry could not explicitly close old client: "
+                    "address=%s",
+                    self.address,
+                )
+
+        await self._wait_for_sb3_control_session()
+
     async def _send_sb3_command(self, cmd: bytes, payload: bytes) -> None:
         """Send an authenticated Solarbank 3 command using AES-GCM.
 
@@ -1601,24 +1670,103 @@ class SolixBLEDevice:
         above. Keeping this path explicit prevents a control write from being
         sent with the wrong cipher or packet length.
         """
-        handshake = self._sb3_handshake
-        if (
-            not self.negotiated
-            or handshake is None
-            or not handshake.session_ready
-            or handshake.session_key is None
-            or handshake.session_nonce is None
-        ):
-            raise ConnectionError("Solarbank 3 session is not ready")
+        response_cmd = _sb3_response_command(cmd)
+        async with self._sb3_command_lock:
+            for attempt in range(2):
+                if not self._sb3_control_session_ready():
+                    await self._wait_for_sb3_control_session()
 
-        timestamp = handshake.next_telemetry_timestamp()
-        plaintext = payload + b"\xfe\x05\x03" + timestamp.to_bytes(4, "little")
-        packet = build_packet(
-            b"\x03\x00\x0f",
-            cmd,
-            aes_gcm_encrypt(handshake.session_key, handshake.session_nonce, plaintext),
+                handshake = self._sb3_handshake
+                # ``_sb3_control_session_ready`` above has checked all of
+                # these, but keeping the guard makes this method safe if a
+                # disconnect callback runs between the await and this point.
+                if (
+                    handshake is None
+                    or not handshake.session_ready
+                    or handshake.session_key is None
+                    or handshake.session_nonce is None
+                ):
+                    if attempt == 0:
+                        await self._reconnect_sb3_for_control_retry(cmd)
+                        continue
+                    raise ConnectionError("Solarbank 3 session is not ready")
+
+                timestamp = handshake.next_telemetry_timestamp()
+                plaintext = (
+                    payload + b"\xfe\x05\x03" + timestamp.to_bytes(4, "little")
+                )
+                packet = build_packet(
+                    _SB3_COMMAND_ACK_PATTERN,
+                    cmd,
+                    aes_gcm_encrypt(
+                        handshake.session_key, handshake.session_nonce, plaintext
+                    ),
+                )
+
+                # Register first so a fast local proxy notification cannot
+                # arrive between the write and the listener setup.
+                future = asyncio.get_running_loop().create_future()
+                self._register_future(
+                    future, _SB3_COMMAND_ACK_PATTERN, response_cmd
+                )
+                try:
+                    await self._write_protocol_packet(packet)
+                    encrypted_ack = await asyncio.wait_for(
+                        future, timeout=_SB3_COMMAND_ACK_TIMEOUT
+                    )
+                    ack_plaintext = aes_gcm_decrypt(
+                        handshake.session_key,
+                        handshake.session_nonce,
+                        encrypted_ack,
+                    )
+                    if (
+                        _is_sb3_command_acknowledgement(ack_plaintext)
+                        and ack_plaintext[-1] == 0x31
+                    ):
+                        _LOGGER.debug(
+                            "SB3 command acknowledgement verified: "
+                            "address=%s command=%s attempt=%d",
+                            self.address,
+                            cmd.hex(),
+                            attempt + 1,
+                        )
+                        return
+                    _LOGGER.warning(
+                        "SB3 command returned an unexpected acknowledgement: "
+                        "address=%s command=%s payload=%s",
+                        self.address,
+                        cmd.hex(),
+                        ack_plaintext.hex(),
+                    )
+                except asyncio.TimeoutError:
+                    _LOGGER.warning(
+                        "SB3 command acknowledgement timed out: "
+                        "address=%s command=%s attempt=%d",
+                        self.address,
+                        cmd.hex(),
+                        attempt + 1,
+                    )
+                except (BleakError, ConnectionError, ValueError) as err:
+                    _LOGGER.warning(
+                        "SB3 command transport/ACK failure: address=%s "
+                        "command=%s attempt=%d error=%s",
+                        self.address,
+                        cmd.hex(),
+                        attempt + 1,
+                        err,
+                    )
+                finally:
+                    self._deregister_future(
+                        future, _SB3_COMMAND_ACK_PATTERN, response_cmd
+                    )
+
+                if attempt == 0:
+                    await self._reconnect_sb3_for_control_retry(cmd)
+
+        raise ConnectionError(
+            "Solarbank 3 did not acknowledge the control command after "
+            "one reconnect retry"
         )
-        await self._write_protocol_packet(packet)
 
     async def _send_sb2ac_command(
         self, cmd: bytes, payload: bytes, *, timestamp: int | None = None
