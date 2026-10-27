@@ -50,10 +50,16 @@ Validated local telemetry currently exposed for the AC model:
 - Solar Power In and PV ports 1/2, decoded from the observed typed A17C0 tags
   `ab`, `c6` and `c7`
 
-The local controls are an all-day Custom schedule (`405e`, 0-800 W in 50 W
-steps) and the staged maximum load limit (`4080`). The usage-mode value is
-telemetry only. An earlier experimental local mode setter did not reproduce
-the Anker app behaviour and has deliberately been removed.
+The AC exposes two independent watt limits:
+
+- **Schedule power target** – the Custom-plan discharge target (`405e`),
+  0–1200 W in 50 W BLE steps.
+- **Maximum load limit** – the on-grid output ceiling (`4080`), including the
+  1200 W option.
+
+The usage-mode value is telemetry only. An earlier experimental local mode
+setter did not reproduce the Anker app behaviour and has deliberately been
+removed.
 
 Unassigned legacy sensors (energy counters, AC socket power, heater status,
 firmware fields, grid status and similar values) are disabled for Solarbank 2

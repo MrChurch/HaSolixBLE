@@ -49,6 +49,9 @@ class MaxLoadSB2(Enum):
     #: 1000 watts.
     W1000 = 1000
 
+    #: 1200 watts.
+    W1200 = 1200
+
 
 class Solarbank2(SolixBLEDevice):
     """
@@ -106,7 +109,7 @@ class Solarbank2(SolixBLEDevice):
         await self._client.write_gatt_char(self._command_characteristic, packet)
 
     @staticmethod
-    def _build_set_schedule_payload(power_w: int) -> bytes:
+    def _build_set_schedule_payload(power_w: int, *, maximum_power_w: int = 800) -> bytes:
         """Build the observed uniform seven-day ``405e`` schedule payload.
 
         Anker's Solarbank 2 app writes schedule targets in 10 W increments.
@@ -116,8 +119,10 @@ class Solarbank2(SolixBLEDevice):
         """
         if not isinstance(power_w, int) or isinstance(power_w, bool):
             raise TypeError("power_w must be an integer")
-        if not 0 <= power_w <= 800 or power_w % 10:
-            raise ValueError("power_w must be between 0 and 800 W in 10 W steps")
+        if not 0 <= power_w <= maximum_power_w or power_w % 10:
+            raise ValueError(
+                f"power_w must be between 0 and {maximum_power_w} W in 10 W steps"
+            )
         schedule = (0).to_bytes(2, "little") + (1440).to_bytes(2, "little")
         schedule += power_w.to_bytes(2, "little") + bytes.fromhex("5000")
         payload = bytearray.fromhex("a10121a2020101")
@@ -620,11 +625,20 @@ class Solarbank2AC(Solarbank2):
         return self._schedule_power_target
 
     def set_schedule_power_target(self, power_w: int, *, staged: bool = True) -> None:
-        """Stage an AC schedule target in 50 W BLE increments."""
-        if not 0 <= power_w <= 800 or power_w % 50:
-            raise ValueError("Schedule power must be between 0 and 800 W in 50 W steps")
-        super().set_schedule_power_target(power_w)
+        """Stage an AC discharge target in 50 W BLE increments.
+
+        The AC model allows up to 1200 W for a custom-plan discharge period.
+        This is separate from the device's on-grid maximum-load limit.
+        """
+        if not 0 <= power_w <= 1200 or power_w % 50:
+            raise ValueError("Schedule power must be between 0 and 1200 W in 50 W steps")
+        self._schedule_power_target = power_w
         self._schedule_power_target_staged = staged
+
+    @staticmethod
+    def _build_set_schedule_payload(power_w: int) -> bytes:
+        """Build an A17C0 plan with its verified 1200 W discharge range."""
+        return Solarbank2._build_set_schedule_payload(power_w, maximum_power_w=1200)
 
     @property
     def max_load_target(self) -> int:
@@ -691,9 +705,9 @@ class Solarbank2AC(Solarbank2):
         await self._send_sb2ac_command(cmd, payload)
 
     async def set_schedule(self, power_w: int) -> None:
-        """Write the uniform plan in 50 W BLE increments."""
-        if not 0 <= power_w <= 800 or power_w % 50:
-            raise ValueError("Schedule power must be between 0 and 800 W in 50 W steps")
+        """Write the uniform discharge plan in 50 W BLE increments."""
+        if not 0 <= power_w <= 1200 or power_w % 50:
+            raise ValueError("Schedule power must be between 0 and 1200 W in 50 W steps")
         await super().set_schedule(power_w)
         self._schedule_power_target = power_w
         self._schedule_power_target_staged = False
